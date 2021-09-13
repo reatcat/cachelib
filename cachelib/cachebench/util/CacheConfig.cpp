@@ -75,6 +75,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, navyWriterThreads);
   JSONSetVal(configJson, navyCleanRegions);
   JSONSetVal(configJson, navyAdmissionWriteRateMB);
+  JSONSetVal(configJson, navyAdmissionProb);
   JSONSetVal(configJson, navyMaxConcurrentInserts);
   JSONSetVal(configJson, navyDataChecksum);
   JSONSetVal(configJson, navyNumInmemBuffers);
@@ -84,6 +85,13 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, navyZonedDevice);
 
   JSONSetVal(configJson, memoryOnlyTTL);
+
+  JSONSetVal(configJson, navyKangarooSizePct);
+  JSONSetVal(configJson, navyKangarooBucketSize);
+  JSONSetVal(configJson, navyKangarooLogSizePct);
+  JSONSetVal(configJson, navyKangarooLogThreshold);
+  JSONSetVal(configJson, navyKangarooLogPhysicalPartitions);
+  JSONSetVal(configJson, navyKangarooLogIndexPerPhysicalPartitions);
 
   JSONSetVal(configJson, useTraceTimeStamp);
   JSONSetVal(configJson, printNvmCounters);
@@ -96,7 +104,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   // if you added new fields to the configuration, update the JSONSetVal
   // to make them available for the json configs and increment the size
   // below
-  checkCorrectSize<CacheConfig, 672>();
+  checkCorrectSize<CacheConfig, 736>();
 
   if (numPools != poolSizes.size()) {
     throw std::invalid_argument(folly::sformat(
