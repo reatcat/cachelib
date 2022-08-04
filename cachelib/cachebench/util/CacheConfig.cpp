@@ -81,6 +81,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, truncateItemToOriginalAllocSizeInNvm);
   JSONSetVal(configJson, navyEncryption);
   JSONSetVal(configJson, deviceMaxWriteSize);
+  JSONSetVal(configJson, navyZonedDevice);
 
   JSONSetVal(configJson, memoryOnlyTTL);
 
