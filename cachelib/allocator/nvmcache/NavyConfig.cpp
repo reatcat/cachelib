@@ -182,16 +182,6 @@ KangarooConfig& KangarooConfig::setLog(unsigned int sizePct,
   return *this;
 }
 
-void NavyConfig::setBigHash(unsigned int bigHashSizePct,
-                            uint32_t bigHashBucketSize,
-                            uint64_t bigHashBucketBfSize,
-                            uint64_t bigHashSmallItemMaxSize) {
-  bigHashConfig_
-      .setSizePctAndMaxItemSize(bigHashSizePct, bigHashSmallItemMaxSize)
-      .setBucketSize(bigHashBucketSize)
-      .setBucketBfSize(bigHashBucketBfSize);
-}
-
 void NavyConfig::setKangaroo(unsigned int kangarooSizePct,
                             uint32_t kangarooBucketSize,
                             uint64_t kangarooBucketBfSize,
