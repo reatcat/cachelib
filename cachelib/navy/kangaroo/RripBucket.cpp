@@ -27,10 +27,12 @@ class FOLLY_PACK_ATTR RripBucketEntry {
   }
 
   BufferView key() const { return {keySize_, data_}; }
-
-  bool keyEqualsTo(HashedKey hk) const {
-    return hk == HashedKey::precomputed(key(), keyHash_);
+  
+  HashedKey hashedKey() const {
+    return HashedKey::precomputed(toStringPiece(key()), keyHash_);
   }
+
+  bool keyEqualsTo(HashedKey hk) const { return hk == hashedKey(); }
   
   bool keyEqualsTo(uint64_t keyHash) const {
     return keyHash == keyHash_;
@@ -46,7 +48,7 @@ class FOLLY_PACK_ATTR RripBucketEntry {
         valueSize_{static_cast<uint16_t>(value.size())},
         keyHash_{hk.keyHash()} {
     static_assert(sizeof(RripBucketEntry) == 12, "RripBucketEntry overhead");
-    hk.key().copyTo(data_);
+    makeView(hk.key()).copyTo(data_);
     value.copyTo(data_ + keySize_);
   }
 
@@ -178,7 +180,7 @@ uint32_t RripBucket::makeSpace(uint32_t size,
 
     if (destructorCb) {
       auto* entry = getIteratorEntry(itr);
-      destructorCb(entry->key(), entry->value(), DestructorEvent::Recycled);
+      destructorCb(entry->hashedKey(), entry->value(), DestructorEvent::Recycled);
     }
 
     curFreeSpace += RripBucketStorage::slotSize(itr.view().size());
@@ -198,7 +200,7 @@ uint32_t RripBucket::remove(HashedKey hk, const DestructorCallback& destructorCb
     auto* entry = getIteratorEntry(itr);
     if (entry->keyEqualsTo(hk)) {
       if (destructorCb) {
-        destructorCb(entry->key(), entry->value(), DestructorEvent::Removed);
+        destructorCb(entry->hashedKey(), entry->value(), DestructorEvent::Removed);
       }
       storage_.remove(itr);
       return 1;
@@ -228,7 +230,7 @@ void RripBucket::reorder(BitVectorReadVisitor isHitCallback) {
       }
 
       auto value = Buffer(entry->value());
-      HashedKey hk = HashedKey(key.view());
+      HashedKey hk = makeHK(key.view());
       BufferView valueView = value.view();
       itr = storage_.remove(itr);
       const auto size = RripBucketEntry::computeSize(hk.key().size(), valueView.size());

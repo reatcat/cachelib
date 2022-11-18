@@ -77,12 +77,12 @@ Kangaroo::Kangaroo(Config&& config)
 
 Kangaroo::Kangaroo(Config&& config, ValidConfigTag)
     : destructorCb_{[this, cb = std::move(config.destructorCb)](
-                        BufferView key,
+                        HashedKey hk,
                         BufferView value,
                         DestructorEvent event) {
-        sizeDist_.removeSize(key.size() + value.size());
+        sizeDist_.removeSize(hk.key().size() + value.size());
         if (cb) {
-          cb(key, value, event);
+          cb(hk, value, event);
         }
       }},
       bucketSize_{config.bucketSize},
@@ -252,13 +252,13 @@ void Kangaroo::getCounters(const CounterVisitor& visitor) const {
 void Kangaroo::persist(RecordWriter& rw) {
   XLOG(INFO, "Starting kangaroo persist");
   serialization::BigHashPersistentData pd;
-  pd.version = kFormatVersion;
-  pd.generationTime = generationTime_.count();
-  pd.itemCount = itemCount_.get();
-  pd.bucketSize = bucketSize_;
-  pd.cacheBaseOffset = cacheBaseOffset_;
-  pd.numBuckets = numBuckets_;
-  *pd.sizeDist_ref() = sizeDist_.getSnapshot();
+  *pd.version() = kFormatVersion;
+  *pd.generationTime() = generationTime_.count();
+  *pd.itemCount() = itemCount_.get();
+  *pd.bucketSize() = bucketSize_;
+  *pd.cacheBaseOffset() = cacheBaseOffset_;
+  *pd.numBuckets() = numBuckets_;
+  *pd.sizeDist() = sizeDist_.getSnapshot();
   serializeProto(pd, rw);
 
   if (bloomFilter_) {
@@ -273,25 +273,25 @@ bool Kangaroo::recover(RecordReader& rr) {
   XLOG(INFO, "Starting kangaroo recovery");
   try {
     auto pd = deserializeProto<serialization::BigHashPersistentData>(rr);
-    if (pd.version != kFormatVersion) {
+    if (*pd.version() != kFormatVersion) {
       throw std::logic_error{
           folly::sformat("invalid format version {}, expected {}",
-                         pd.version,
+                         *pd.version(),
                          kFormatVersion)};
     }
 
     auto configEquals =
-        static_cast<uint64_t>(pd.bucketSize) == bucketSize_ &&
-        static_cast<uint64_t>(pd.cacheBaseOffset) == cacheBaseOffset_ &&
-        static_cast<uint64_t>(pd.numBuckets) == numBuckets_;
+        static_cast<uint64_t>(*pd.bucketSize()) == bucketSize_ &&
+        static_cast<uint64_t>(*pd.cacheBaseOffset()) == cacheBaseOffset_ &&
+        static_cast<uint64_t>(*pd.numBuckets()) == numBuckets_;
     if (!configEquals) {
       auto configStr = serializeToJson(pd);
       XLOGF(ERR, "Recovery config: {}", configStr.c_str());
       throw std::logic_error{"config mismatch"};
     }
 
-    generationTime_ = std::chrono::nanoseconds{pd.generationTime};
-    itemCount_.set(pd.itemCount);
+    generationTime_ = std::chrono::nanoseconds{*pd.generationTime()};
+    itemCount_.set(*pd.itemCount());
     sizeDist_ = SizeDistribution{*pd.sizeDist_ref()};
     if (bloomFilter_) {
       bloomFilter_->recover<ProtoSerializer>(rr);

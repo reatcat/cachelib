@@ -40,6 +40,7 @@ class FOLLY_PACK_ATTR LogBucket {
     bool done() const { return itr_.done(); }
 
     BufferView key() const;
+    HashedKey hashedKey() const;
     uint64_t keyHash() const;
     BufferView value() const;
 

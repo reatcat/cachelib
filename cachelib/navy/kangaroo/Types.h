@@ -100,7 +100,6 @@ class KangarooBucketId {
 using SetNumberCallback = std::function<KangarooBucketId(uint64_t)>;
 
 struct ObjectInfo {
-  Buffer keyValue;
   HashedKey key;
   Buffer value;
   uint8_t hits;
@@ -108,8 +107,11 @@ struct ObjectInfo {
   uint32_t tag;
 
   ObjectInfo(HashedKey k, BufferView v, uint8_t h, LogPageId l, uint32_t t):
-    keyValue{k.key()}, key{HashedKey::precomputed(keyValue.view(), k.keyHash())},
-    value{Buffer(v)}, hits{h}, lpid{l}, tag{t} {}
+    key{k},
+    value{v}, 
+    hits{h}, 
+    lpid{l}, 
+    tag{t} {}
 };
 using ReadmitCallback = std::function<void(std::unique_ptr<ObjectInfo>&)>;
 using SetMultiInsertCallback = std::function<void(std::vector<std::unique_ptr<ObjectInfo>>&, ReadmitCallback)>;
@@ -117,7 +119,7 @@ using SetMultiInsertCallback = std::function<void(std::vector<std::unique_ptr<Ob
 static const uint32_t maxTagValue = 1 << 9;
 static const int tagSeed = 23;
 static uint32_t createTag(HashedKey hk) {
-  return hashBuffer(hk.key(), tagSeed) % maxTagValue;
+  return hashBuffer(makeView(hk.key()), tagSeed) % maxTagValue;
 } 
 
 } // namespace navy

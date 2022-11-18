@@ -19,7 +19,7 @@ class KangarooLogSegment  {
    public:
     bool done() const { return done_; }
 
-    HashedKey key() const { return HashedKey(itr_.key()); }
+    HashedKey key() const { return itr_.hashedKey(); }
 
     BufferView value() const { return itr_.value(); }
 

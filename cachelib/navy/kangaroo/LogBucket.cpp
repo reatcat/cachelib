@@ -28,6 +28,10 @@ class FOLLY_PACK_ATTR LogBucketEntry {
 
   BufferView key() const { return {keySize_, data_}; }
   
+  HashedKey hashedKey() const {
+    return HashedKey::precomputed(toStringPiece(key()), keyHash_);
+  }
+  
   uint64_t keyHash() const { return makeHK(key()).keyHash(); }
 
   bool keyEqualsTo(HashedKey hk) const {
@@ -43,14 +47,16 @@ class FOLLY_PACK_ATTR LogBucketEntry {
  private:
   LogBucketEntry(HashedKey hk, BufferView value)
       : keySize_{static_cast<uint16_t>(hk.key().size())},
-        valueSize_{static_cast<uint16_t>(value.size())} {
-    static_assert(sizeof(LogBucketEntry) == 4, "LogBucketEntry overhead");
-    hk.key().copyTo(data_);
+        valueSize_{static_cast<uint16_t>(value.size())},
+        keyHash_{hk.keyHash()} {
+    static_assert(sizeof(LogBucketEntry) == 12, "LogBucketEntry overhead");
+    makeView(hk.key()).copyTo(data_);
     value.copyTo(data_ + keySize_);
   }
 
   const uint16_t keySize_{};
   const uint16_t valueSize_{};
+  const uint64_t keyHash_{};
   uint8_t data_[];
 };
 
@@ -61,6 +67,10 @@ const LogBucketEntry* getIteratorEntry(KangarooBucketStorage::Allocation itr) {
 
 BufferView LogBucket::Iterator::key() const {
   return getIteratorEntry(itr_)->key();
+}
+
+HashedKey LogBucket::Iterator::hashedKey() const {
+  return getIteratorEntry(itr_)->hashedKey();
 }
 
 uint64_t LogBucket::Iterator::keyHash() const {
@@ -178,7 +188,7 @@ uint32_t LogBucket::makeSpace(uint32_t size,
 
     if (destructorCb) {
       auto* entry = getIteratorEntry(itr);
-      destructorCb(entry->key(), entry->value(), DestructorEvent::Recycled);
+      destructorCb(entry->hashedKey(), entry->value(), DestructorEvent::Recycled);
     }
 
     curFreeSpace += KangarooBucketStorage::slotSize(itr.view().size());
@@ -198,7 +208,7 @@ uint32_t LogBucket::remove(HashedKey hk, const DestructorCallback& destructorCb)
     auto* entry = getIteratorEntry(itr);
     if (entry->keyEqualsTo(hk)) {
       if (destructorCb) {
-        destructorCb(entry->key(), entry->value(), DestructorEvent::Removed);
+        destructorCb(entry->hashedKey(), entry->value(), DestructorEvent::Removed);
       }
       storage_.remove(itr);
       return 1;
@@ -217,7 +227,7 @@ void LogBucket::reorder(BitVectorReadVisitor isHitCallback) {
     if (hit) {
       auto key = Buffer(entry->key());
       auto value = Buffer(entry->value());
-      HashedKey hk = HashedKey(key.view());
+      HashedKey hk = makeHK(key.view());
       BufferView valueView = value.view();
       storage_.remove(itr);
       const auto size = LogBucketEntry::computeSize(hk.key().size(), valueView.size());
