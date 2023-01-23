@@ -196,7 +196,9 @@ class KangarooProtoImpl final : public KangarooProto {
   void setLog(uint64_t logSize, 
               uint32_t threshold,
               uint32_t physicalPartitions,
-              uint32_t indexPartitionsPerPhysical) override {
+              uint32_t indexPartitionsPerPhysical,
+              uint64_t writeGranularity,
+              uint64_t flushGranularity) override {
     config_.logConfig.logSize = logSize;
     config_.totalSetSize = config_.totalSetSize - logSize;
     config_.logConfig.logBaseOffset = config_.cacheBaseOffset + config_.totalSetSize;
@@ -205,6 +207,8 @@ class KangarooProtoImpl final : public KangarooProto {
     config_.logConfig.logPhysicalPartitions = physicalPartitions;
     config_.logConfig.numTotalIndexBuckets = config_.numBuckets() - 
         config_.numBuckets() % (indexPartitionsPerPhysical * physicalPartitions);
+    config_.logConfig.segmentSize = writeGranularity;
+    config_.logConfig.flushGranularity = flushGranularity;
   }
 
   void setDevice(Device* device) { config_.device = device; }

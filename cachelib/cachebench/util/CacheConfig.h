@@ -159,6 +159,9 @@ struct CacheConfig : public JSONConfig {
 
   // Number of index partitions per physical partitions, allows for smaller index
   uint64_t navyKangarooLogIndexPerPhysicalPartitions = 1;
+  
+  // Number of index partitions per physical partitions, allows for smaller index
+  uint64_t navyKangarooLogWriteGranularity = 4096 * 256;
 
   // Big Hash bloom filter size in bytes per bucket above.
   uint64_t navyBloomFilterPerBucketSize = 8;

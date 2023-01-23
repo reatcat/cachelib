@@ -439,7 +439,8 @@ class KangarooConfig {
   KangarooConfig& setLog(unsigned int sizePct, 
                          uint64_t physicalPartitions,
                          uint64_t indexPerPhysicalParitions,
-                         uint32_t threshold);
+                         uint32_t threshold,
+                         uint64_t writeGranularity);
 
   bool isBloomFilterEnabled() const { return bucketBfSize_ > 0; }
 
@@ -458,6 +459,8 @@ class KangarooConfig {
   uint64_t getIndexPerPhysicalPartitions() const { return indexPerPhysicalPartitions_; }
 
   uint32_t getLogThreshold() const { return threshold_; }
+  
+  uint32_t getWriteGran() const { return writeGranularity_; }
 
  private:
   // Percentage of how much of the device out of all is given to Kangaroo
@@ -480,6 +483,9 @@ class KangarooConfig {
   uint64_t indexPerPhysicalPartitions_{1};
   // Threshold for moving items from KangarooLog to sets
   uint32_t threshold_{1};
+  // Write granularity for log segments in KangarooLog,
+  // affects capacity used in KLog
+  uint32_t writeGranularity_{0};
 };
 
 /**
@@ -619,7 +625,8 @@ class NavyConfig {
                   uint64_t kangarooLogSizePct,
                   uint64_t kangarooLogThreshold,
                   uint64_t kangarooLogPhysicalPartitions,
-                  uint32_t kangarooLogIndexPerPhysicalPartitions);
+                  uint32_t kangarooLogIndexPerPhysicalPartitions,
+                  uint64_t kangarooLogWriteGran);
   // Return KangarooConfig for configuration.
   KangarooConfig& kangaroo() noexcept { return kangarooConfig_; }
 

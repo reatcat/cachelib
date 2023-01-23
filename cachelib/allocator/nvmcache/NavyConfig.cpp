@@ -155,7 +155,8 @@ KangarooConfig& KangarooConfig::setSizePctAndMaxItemSize(
 KangarooConfig& KangarooConfig::setLog(unsigned int sizePct, 
                                        uint64_t physicalPartitions, 
                                        uint64_t indexPerPhysicalPartitions,
-                                       uint32_t threshold) {
+                                       uint32_t threshold,
+                                       uint64_t writeGranularity) {
   if (sizePct > 100) {
     throw std::invalid_argument(folly::sformat(
         "to enable KangarooLog, KangarooLog size pct should be in the range of [0, 100]"
@@ -179,6 +180,7 @@ KangarooConfig& KangarooConfig::setLog(unsigned int sizePct,
   physicalPartitions_ = physicalPartitions;
   indexPerPhysicalPartitions_ = indexPerPhysicalPartitions;
   threshold_ = threshold;
+  writeGranularity_ = writeGranularity;
   return *this;
 }
 
@@ -189,13 +191,15 @@ void NavyConfig::setKangaroo(unsigned int kangarooSizePct,
                             uint64_t kangarooLogSizePct,
                             uint64_t kangarooLogThreshold,
                             uint64_t kangarooLogPhysicalPartitions,
-                            uint32_t kangarooLogIndexPerPhysicalPartitions) {
+                            uint32_t kangarooLogIndexPerPhysicalPartitions,
+                            uint64_t kangarooLogWriteGran) {
   kangarooConfig_
       .setSizePctAndMaxItemSize(kangarooSizePct, kangarooSmallItemMaxSize)
       .setBucketSize(kangarooBucketSize)
       .setBucketBfSize(kangarooBucketBfSize)
       .setLog(kangarooLogSizePct, kangarooLogThreshold, 
-              kangarooLogPhysicalPartitions, kangarooLogIndexPerPhysicalPartitions);
+              kangarooLogPhysicalPartitions, kangarooLogIndexPerPhysicalPartitions,
+              kangarooLogWriteGran);
 }
 
 // job scheduler settings

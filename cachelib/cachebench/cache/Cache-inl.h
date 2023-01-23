@@ -184,7 +184,8 @@ Cache<Allocator>::Cache(const CacheConfig& config,
                                          config_.navyKangarooLogSizePct,
                                          config_.navyKangarooLogThreshold,
                                          config_.navyKangarooLogPhysicalPartitions,
-                                         config_.navyKangarooLogIndexPerPhysicalPartitions);
+                                         config_.navyKangarooLogIndexPerPhysicalPartitions,
+                                         config_.navyKangarooLogWriteGranularity);
     }
 
 

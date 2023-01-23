@@ -128,7 +128,9 @@ class KangarooProto {
   virtual void setLog(uint64_t logSize, 
                       uint32_t threshold,
                       uint32_t physicalPartitions,
-                      uint32_t indexPartitionsPerPhysical) = 0;
+                      uint32_t indexPartitionsPerPhysical,
+                      uint64_t writeGranularity,
+                      uint64_t flushGranularity) = 0;
 };
 
 // Cache object prototype. Setup cache desired parameters and pass proto to
