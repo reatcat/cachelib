@@ -13,6 +13,7 @@
 #include "cachelib/navy/common/SizeDistribution.h"
 #include "cachelib/navy/common/Types.h"
 #include "cachelib/navy/engine/Engine.h"
+#include "cachelib/navy/kangaroo/FairyWREN.h"
 #include "cachelib/navy/kangaroo/LogBucket.h"
 #include "cachelib/navy/kangaroo/KangarooLog.h"
 #include "cachelib/navy/kangaroo/KangarooSizeDistribution.h"
@@ -174,6 +175,7 @@ class Kangaroo final : public Engine {
   std::unique_ptr<BloomFilter> bloomFilter_;
   std::unique_ptr<RripBitVector> bitVector_;
   std::unique_ptr<KangarooLog> log_{nullptr};
+  std::unique_ptr<FairyWREN> wren_device_{nullptr};
   std::chrono::nanoseconds generationTime_{};
   Device& device_;
   std::unique_ptr<folly::SharedMutex[]> mutex_{

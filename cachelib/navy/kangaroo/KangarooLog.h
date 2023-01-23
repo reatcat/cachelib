@@ -40,7 +40,9 @@ class KangarooLog  {
     // for merging to sets
     uint32_t threshold;
     SetMultiInsertCallback setMultiInsertCallback{};
-    uint64_t mergeThreads{32};
+    uint64_t mergeThreads{16};
+
+    uint64_t flushGranularity{};
 
     Config& validate();
   };

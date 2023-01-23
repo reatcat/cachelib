@@ -150,6 +150,13 @@ KangarooLog::Config& KangarooLog::Config::validate() {
           "Phycial partition size must be a multiple of read size"
     ));
   }
+  
+  /*if (logSize / logPhysicalPartitions % flushGranularity != 0) {
+    throw std::invalid_argument(folly::sformat(
+          "Log size ({}) must be a multiple of physical partitions ({}) and flush size ({})",
+          logSize, logPhysicalParitions, flushGranularity,
+    ));
+  }*/
 
   if (numTotalIndexBuckets % logIndexPartitions != 0) {
     throw std::invalid_argument(folly::sformat(

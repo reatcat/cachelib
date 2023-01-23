@@ -37,6 +37,7 @@ add_library (cachelib_navy
   driver/Driver.cpp
   Factory.cpp
   kangaroo/ChainedLogIndex.cpp
+  kangaroo/FairyWREN.cpp
   kangaroo/Kangaroo.cpp
   kangaroo/KangarooLog.cpp
   kangaroo/KangarooLogSegment.cpp
