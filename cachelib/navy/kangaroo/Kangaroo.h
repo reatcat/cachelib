@@ -124,6 +124,7 @@ class Kangaroo final : public Engine {
   Buffer readBucket(KangarooBucketId bid);
   bool writeBucket(KangarooBucketId bid, Buffer buffer);
 
+
   // The corresponding r/w bucket lock must be held during the entire
   // duration of the read and write operations. For example, during write,
   // if write lock is dropped after a bucket is read from device, user
@@ -168,6 +169,25 @@ class Kangaroo final : public Engine {
   // Open addressing index overhead
   static constexpr double LogIndexOverhead = 2;
 
+  // Log flushing and gc code, performed on a separate set of threads
+  double flushingThreshold_ = 0.1;
+  double gcThreshold_ = 0.03;
+  void enterCleaning();
+  bool shouldLogFlush(); // not parallel
+  bool shouldGC(); // not parallel
+  void performGC();
+  void performLogFlush();
+  void finishCleaning();
+  void finishGC();
+  void finishLogFlush();
+  void cleanSegmentsLoop();
+  void cleanSegmentsWaitLoop();
+  std::vector<std::thread> cleaningThreads_;
+  uint64_t numCleaningThreads_;
+  std::mutex cleaningMutex_;
+  std::condititon_variable cleaningCV_;
+  int startedCleaning_;
+
   const DestructorCallback destructorCb_{};
   const uint64_t bucketSize_{};
   const uint64_t cacheBaseOffset_{};
@@ -180,6 +200,7 @@ class Kangaroo final : public Engine {
   Device& device_;
   std::unique_ptr<folly::SharedMutex[]> mutex_{
       new folly::SharedMutex[kNumMutexes]};
+
   mutable AtomicCounter itemCount_;
   mutable AtomicCounter logItemCount_;
   mutable AtomicCounter setItemCount_;

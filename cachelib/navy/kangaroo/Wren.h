@@ -38,7 +38,7 @@ class FairyWREN  {
   Buffer read(KangarooBucketId kbid);
   bool write(KangarooBucketId kbid, Buffer buffer);
 
-  bool needEviction();
+  bool shouldClean();
   EuIterator getEuIterator();
   EuIterator getNext(EuIterator); // of next zone to erase
   bool erase(); // will throw error if not all buckets are rewritten

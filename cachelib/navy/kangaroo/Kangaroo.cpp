@@ -592,6 +592,92 @@ bool Kangaroo::writeBucket(KangarooBucketId bid, Buffer buffer) {
   bucket->setChecksum(RripBucket::computeChecksum(buffer.view()));
   return device_.write(getBucketOffset(bid), std::move(buffer));
 }
+
+bool Kangaroo::shouldLogFlush() {
+	return log_->shouldClean(flushingThreshold_);
+}
+
+bool Kangaroo::shouldGC() {
+	return wren_device_->shouldClean(gcThreshold_);
+}
+
+void Kangaroo::finishLogFlush() {
+	finishCleaning();
+	log_->finishClean();
+}
+
+void Kangaroo::finishGC() {
+	finishCleaning();
+	wren_device_->finishClean();
+}
+
+void Kangaroo::performLogFlush() {
+	enterCleaning();
+}
+
+void Kangaroo::performGC() {
+	enterCleaning();
+}
+
+void Kangaroo::finishCleaning() {
+	while (true) {
+		{
+			std::unique_lock<folly::SharedMutex> lock{cleaningMutex_};
+			if (startedCleaning_ >= numCleaningThreads_) {
+				break;
+			}
+		}
+		cleaningCV_.wait_for(cleaningMutex_, std::chrono::seconds(10));
+	}
+
+	{
+		std::unique_lock<folly::SharedMutex> lock{cleaningMutex_};
+		startedCleaning_ = 0;
+	}
+}
+
+void Kangaroo::enterCleaning() {
+    std::unique_lock<folly::SharedMutex> lock{cleaningMutex_};
+		startedCleaning_++;
+		if (startedCleaning_ >= numCleaningThreads_) {
+			cleaningCV_.notify_one();
+		}
+}
+
+void Kangaroo::cleanSegmentsLoop() {
+  while (true) {
+    if (killThread_) {
+      return;
+    }
+
+    if (shouldGC()) {
+      // TODO: update locking mechanism
+      performGC();
+    } else if (shouldLogFlush()) {
+			// TODO: update locking mechanism
+      performLogFlush();
+    }
+  }
+}
+
+void Kangaroo::cleanSegmentsWaitLoop() {
+	// TODO: figure out locking
+  while (true) {
+    if (killThread_) {
+      return;
+    }
+
+    if (shouldGC()) {
+        performGC();
+    } else if (shouldLogFlush()) {
+        performLogFlush();
+    }
+
+
+    flushLogCv_.wait_for(segmentLock, std::chrono::seconds(30));
+  }
+}
+
 } // namespace navy
 } // namespace cachelib
 } // namespace facebook

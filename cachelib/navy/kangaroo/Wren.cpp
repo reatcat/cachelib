@@ -91,7 +91,7 @@ bool FairyWREN::write(KangarooBucketId kbid, Buffer buffer) {
     }
 }
 
-bool FairyWREN::needEviction() {
+bool FairyWREN::shouldClean(double cleaningThreshold) {
     uint32_t freeEus = 0;
     uint32_t writeEu = writeEraseUnit_;
     if (eraseEraseUnit_ >= writeEu) {
@@ -99,7 +99,7 @@ bool FairyWREN::needEviction() {
     } else {
         freeEus = eraseEraseUnit_ + (numEus_ - writeEu);
     }
-    return freeEus <= cleaningThreshold_;
+    return freeEus <= cleaningThreshold;
 }
 
 bool FairyWREN::erase() {
