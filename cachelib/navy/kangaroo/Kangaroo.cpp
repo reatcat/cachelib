@@ -106,9 +106,7 @@ Kangaroo::Kangaroo(Config&& config, ValidConfigTag)
     config.logConfig.logIndexPartitions = config.logIndexPartitionsPerPhysical * config.logConfig.logPhysicalPartitions;
     uint64_t bytesPerIndex = config.logConfig.logSize / config.logConfig.logIndexPartitions;
     config.logConfig.device = config.device;
-    config.logConfig.setMultiInsertCallback = [&](std::vector<std::unique_ptr<ObjectInfo>>& ois, 
-        ReadmitCallback readmit) { return insertMultipleObjectsToKangarooBucket(ois, readmit); };
-    log_ = std::make_unique<KangarooLog>(std::move(config.logConfig));
+    fwLog_ = std::make_unique<FwLog>(std::move(config.logConfig));
   }
   reset();
 }
@@ -147,9 +145,7 @@ double Kangaroo::bfFalsePositivePct() const {
   }
 }
 
-void Kangaroo::insertMultipleObjectsToKangarooBucket(std::vector<std::unique_ptr<ObjectInfo>>& ois, 
-    ReadmitCallback readmit) {
-  const auto bid = getKangarooBucketId(ois[0]->key);
+void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush) {
   insertCount_.inc();
   multiInsertCalls_.inc();
 
@@ -159,19 +155,24 @@ void Kangaroo::insertMultipleObjectsToKangarooBucket(std::vector<std::unique_ptr
 
   uint64_t passedItemSize = 0;
   uint64_t passedCount = 0;
+
+	std::vector<std::unique_ptr<ObjectInfo>> ois;
+	if (logFlush || fwOptimizations_) {
+		ois = fwLog_->getObjectsToMove(kbid, logFlush);
+	}
     
     
   {
-    std::unique_lock<folly::SharedMutex> lock{getMutex(bid)};
-    auto buffer = readBucket(bid);
+    std::unique_lock<folly::SharedMutex> lock{getMutex(kbid)};
+    auto buffer = readBucket(kbid);
     if (buffer.isNull()) {
       ioErrorCount_.inc();
       return; 
     }
 
     auto* bucket = reinterpret_cast<RripBucket*>(buffer.data());
-    bucket->reorder([&](uint32_t keyIdx) {return bvGetHit(bid, keyIdx);});
-    bitVector_->clear(bid.index());
+    bucket->reorder([&](uint32_t keyIdx) {return bvGetHit(kbid, keyIdx);});
+    bitVector_->clear(kbid.index());
 
     for (auto& oi: ois) {
       passedItemSize += oi->key.key().size() + oi->value.size();
@@ -183,22 +184,22 @@ void Kangaroo::insertMultipleObjectsToKangarooBucket(std::vector<std::unique_ptr
         sizeDist_.addSize(oi->key.key().size() + oi->value.size());
         insertCount++;
       } else {
-        readmit(oi);
+        fwLog_->readmit(oi);
         readmitInsertCount_.inc();
       }
     }
 
-    const auto res = writeBucket(bid, std::move(buffer));
+    const auto res = writeBucket(kbid, std::move(buffer));
     if (!res) {
       if (bloomFilter_) {
-        bloomFilter_->clear(bid.index());
+        bloomFilter_->clear(kbid.index());
       }
       ioErrorCount_.inc();
       return;
     }
 
     if (bloomFilter_) {
-      bfRebuild(bid, bucket);
+      bfRebuild(kbid, bucket);
     }
   }
 
@@ -232,16 +233,14 @@ void Kangaroo::getCounters(const CounterVisitor& visitor) const {
   visitor("navy_bh_succ_removes", succRemoveCount_.get());
   visitor("navy_bh_evictions", evictionCount_.get());
   visitor("navy_bh_logical_written", logicalWrittenCount_.get());
-  uint64_t logBytesWritten = (log_) ? log_->getBytesWritten() : 0;
+  uint64_t logBytesWritten = (fwLog_) ? fwLog_->getBytesWritten() : 0;
   visitor("navy_bh_physical_written", physicalWrittenCount_.get() + logBytesWritten);
   visitor("navy_bh_io_errors", ioErrorCount_.get());
   visitor("navy_bh_bf_false_positive_pct", bfFalsePositivePct());
   visitor("navy_bh_checksum_errors", checksumErrorCount_.get());
-  if (log_) {
-    visitor("navy_klog_false_positive_pct", log_->falsePositivePct());
-    visitor("navy_klog_fragmentation_pct", log_->fragmentationPct());
-    visitor("navy_klog_extra_reads_pct", log_->extraReadsPct());
-  }
+	visitor("navy_fwlog_false_positive_pct", fwLog_->falsePositivePct());
+	visitor("navy_fwlog_fragmentation_pct", fwLog_->fragmentationPct());
+	visitor("navy_fwlog_extra_reads_pct", fwLog_->extraReadsPct());
   auto snapshot = sizeDist_.getSnapshot();
   for (auto& kv : snapshot) {
     auto statName = folly::sformat("navy_bh_approx_bytes_in_size_{}", kv.first);
@@ -313,8 +312,8 @@ Status Kangaroo::insert(HashedKey hk,
   const auto bid = getKangarooBucketId(hk);
   insertCount_.inc();
 
-  if (log_) {
-    Status ret = log_->insert(hk, value);
+  if (fwLog_) {
+    Status ret = fwLog_->insert(hk, value);
     if (ret == Status::Ok) {
       sizeDist_.addSize(hk.key().size() + value.size());
       succInsertCount_.inc();
@@ -394,8 +393,8 @@ Status Kangaroo::lookup(HashedKey hk, Buffer& value) {
   lookupCount_.inc();
 
   // first check log if it exists
-  if (log_) {
-    Status ret = log_->lookup(hk, value);
+  if (fwLog_) {
+    Status ret = fwLog_->lookup(hk, value);
     if (ret == Status::Ok) {
       succLookupCount_.inc();
       logHits_.inc();
@@ -442,8 +441,8 @@ Status Kangaroo::remove(HashedKey hk) {
   const auto bid = getKangarooBucketId(hk);
   removeCount_.inc();
 
-  if (log_) {
-    Status ret = log_->remove(hk);
+  if (fwLog_) {
+    Status ret = fwLog_->remove(hk);
     if (ret == Status::Ok) {
       succRemoveCount_.inc();
       itemCount_.dec();
@@ -502,8 +501,8 @@ bool Kangaroo::couldExist(HashedKey hk) {
   const auto bid = getKangarooBucketId(hk);
   bool canExist = false;
 
-  if (log_) {
-    canExist = log_->couldExist(hk);
+  if (fwLog_) {
+    canExist = fwLog_->couldExist(hk);
   }
 
   if (!canExist) {
@@ -594,54 +593,71 @@ bool Kangaroo::writeBucket(KangarooBucketId bid, Buffer buffer) {
 }
 
 bool Kangaroo::shouldLogFlush() {
-	return log_->shouldClean(flushingThreshold_);
+	return fwLog_->shouldClean(flushingThreshold_);
 }
 
 bool Kangaroo::shouldGC() {
-	return wren_device_->shouldClean(gcThreshold_);
-}
-
-void Kangaroo::finishLogFlush() {
-	finishCleaning();
-	log_->finishClean();
-}
-
-void Kangaroo::finishGC() {
-	finishCleaning();
-	wren_device_->finishClean();
+	return wrenDevice_->shouldClean(gcThreshold_);
 }
 
 void Kangaroo::performLogFlush() {
-	enterCleaning();
-}
+	{
+    std::unique_lock<std::mutex> lock{cleaningSync_};
+		cleaningSyncThreads_++;
+	}
 
-void Kangaroo::performGC() {
-	enterCleaning();
-}
-
-void Kangaroo::finishCleaning() {
 	while (true) {
+		KangarooBucketId kbid = KangarooBucketId(0);
 		{
-			std::unique_lock<folly::SharedMutex> lock{cleaningMutex_};
-			if (startedCleaning_ >= numCleaningThreads_) {
+			std::unique_lock<std::mutex> lock{cleaningSync_};
+			if (!fwLog_->cleaningDone()) {
+				kbid = fwLog_->getNextCleaningBucket();
+			} else {
 				break;
 			}
 		}
-		cleaningCV_.wait_for(cleaningMutex_, std::chrono::seconds(10));
+		moveBucket(kbid, true);
 	}
 
+	performingLogFlush_ = false;
 	{
-		std::unique_lock<folly::SharedMutex> lock{cleaningMutex_};
-		startedCleaning_ = 0;
+    std::unique_lock<std::mutex> lock{cleaningSync_};
+		cleaningSyncThreads_--;
+		if (cleaningSyncThreads_ == 0) {
+			cleaningSyncCond_.notify_all();
+		} 	
 	}
 }
 
-void Kangaroo::enterCleaning() {
-    std::unique_lock<folly::SharedMutex> lock{cleaningMutex_};
-		startedCleaning_++;
-		if (startedCleaning_ >= numCleaningThreads_) {
-			cleaningCV_.notify_one();
+void Kangaroo::performGC() {
+	{
+    std::unique_lock<std::mutex> lock{cleaningSync_};
+		cleaningSyncThreads_++;
+	}
+
+	bool done = false;
+	while (!done) {
+		KangarooBucketId kbid = KangarooBucketId(0);
+		{
+			std::unique_lock<std::mutex> lock{cleaningSync_};
+			if (!euIterator_.done()) {
+				kbid = euIterator_.getBucket();
+				euIterator_ = wrenDevice_->getNext(euIterator_);
+			} else {
+				break;
+			}
 		}
+		moveBucket(kbid, false);
+	}
+
+	performingGC_ = false;
+	{
+    std::unique_lock<std::mutex> lock{cleaningSync_};
+		cleaningSyncThreads_--;
+		if (cleaningSyncThreads_ == 0) {
+			cleaningSyncCond_.notify_all();
+		} 	
+	}
 }
 
 void Kangaroo::cleanSegmentsLoop() {
@@ -652,10 +668,33 @@ void Kangaroo::cleanSegmentsLoop() {
 
     if (shouldGC()) {
       // TODO: update locking mechanism
+			euIterator_ = wrenDevice_->getEuIterator();
+			performingGC_ = true;
+			cleaningSyncCond_.notify_all();
       performGC();
+
+			{
+				std::unique_lock<std::mutex> lock{cleaningSync_};
+				while (cleaningSyncThreads_ != 0) {
+					cleaningSyncCond_.wait(lock);
+				}
+			}
+			wrenDevice_->erase();
+
     } else if (shouldLogFlush()) {
 			// TODO: update locking mechanism
+			fwLog_->startClean();
+			performingLogFlush_ = true;
+			cleaningSyncCond_.notify_all();
       performLogFlush();
+
+			{
+				std::unique_lock<std::mutex> lock{cleaningSync_};
+				while (cleaningSyncThreads_ != 0) {
+					cleaningSyncCond_.wait(lock);
+				}
+			}
+			fwLog_->finishClean();
     }
   }
 }
@@ -667,15 +706,24 @@ void Kangaroo::cleanSegmentsWaitLoop() {
       return;
     }
 
-    if (shouldGC()) {
+    if (performingGC_) {
         performGC();
-    } else if (shouldLogFlush()) {
+    } else if (performingLogFlush_) {
         performLogFlush();
     }
 
-
-    flushLogCv_.wait_for(segmentLock, std::chrono::seconds(30));
+		{
+			std::unique_lock<std::mutex> lock{cleaningSync_};
+			cleaningSyncCond_.wait(lock);
+		}
   }
+}
+
+Kangaroo::~Kangaroo() {
+	killThread_ = true;
+	for (auto& thread: cleaningThreads_) {
+		thread.join();
+	}
 }
 
 } // namespace navy

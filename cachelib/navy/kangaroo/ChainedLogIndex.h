@@ -79,6 +79,7 @@ class ChainedLogIndex  {
 
   // Get iterator for all items in the same bucket
   BucketIterator getHashBucketIterator(HashedKey hk);
+  BucketIterator getHashBucketIterator(KangarooBucketId bid);
   BucketIterator getNext(BucketIterator bi);
 
  private:

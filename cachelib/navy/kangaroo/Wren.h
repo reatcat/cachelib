@@ -9,7 +9,7 @@
 namespace facebook {
 namespace cachelib {
 namespace navy {
-class FairyWREN  {
+class Wren  {
  public:
   class EuIterator {
     // Iterator, does not hold any locks
@@ -17,9 +17,10 @@ class FairyWREN  {
     public: 
       bool done() { return done_; }
       KangarooBucketId getBucket() { return kbid_; }
+			EuIterator() : kbid_{0}, next_kbid_{0}, done_{false} {}
 
     private:
-      friend FairyWREN;
+      friend Wren;
 
       explicit EuIterator(KangarooBucketId kbid, KangarooBucketId next_kbid): 
             kbid_{kbid}, next_kbid_{next_kbid} {}
@@ -29,16 +30,16 @@ class FairyWREN  {
   };
 
   // Throw std::invalid_argument on bad config
-  explicit FairyWREN(Device* device, uint64_t numBuckets, uint32_t bucketSize);
-  ~FairyWREN();
+  explicit Wren(Device* device, uint64_t numBuckets, uint32_t bucketSize);
+  ~Wren();
 
-  FairyWREN(const FairyWREN&) = delete;
-  FairyWREN& operator=(const FairyWREN&) = delete;
+  Wren(const Wren&) = delete;
+  Wren& operator=(const Wren&) = delete;
 
   Buffer read(KangarooBucketId kbid);
   bool write(KangarooBucketId kbid, Buffer buffer);
 
-  bool shouldClean();
+  bool shouldClean(double cleaningThreshold);
   EuIterator getEuIterator();
   EuIterator getNext(EuIterator); // of next zone to erase
   bool erase(); // will throw error if not all buckets are rewritten
@@ -61,7 +62,7 @@ class FairyWREN  {
     uint32_t index() const noexcept { return idx_; }
 
    private:
-    uint64_t idx_;
+    uint32_t idx_;
   };
 
   struct EuIdentifier {

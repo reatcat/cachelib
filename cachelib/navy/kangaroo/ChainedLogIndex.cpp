@@ -186,14 +186,18 @@ uint64_t ChainedLogIndex::countBucket(HashedKey hk) {
 
 // Get iterator for all items in the same bucket
 ChainedLogIndex::BucketIterator ChainedLogIndex::getHashBucketIterator(HashedKey hk) {
-  const auto lib = getLogIndexBucket(hk); 
   auto idx = setNumberCb_(hk.keyHash());
+	return getHashBucketIterator(idx);
+}
+
+ChainedLogIndex::BucketIterator ChainedLogIndex::getHashBucketIterator(KangarooBucketId bid) {
+  const auto lib = getLogIndexBucketFromSetBucket(bid); 
   {
     std::shared_lock<folly::SharedMutex> lock{getMutex(lib)};
     auto currentHead = findEntry(index_[lib.index()]);
     while (currentHead) {
       if (currentHead->isValid()) {
-        return BucketIterator(idx, currentHead);
+        return BucketIterator(bid, currentHead);
       }
       currentHead = findEntry(currentHead->next_);
     }

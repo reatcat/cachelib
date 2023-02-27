@@ -13,13 +13,13 @@
 #include "cachelib/navy/common/SizeDistribution.h"
 #include "cachelib/navy/common/Types.h"
 #include "cachelib/navy/engine/Engine.h"
-#include "cachelib/navy/kangaroo/FairyWREN.h"
+#include "cachelib/navy/kangaroo/FwLog.h"
 #include "cachelib/navy/kangaroo/LogBucket.h"
-#include "cachelib/navy/kangaroo/KangarooLog.h"
 #include "cachelib/navy/kangaroo/KangarooSizeDistribution.h"
 #include "cachelib/navy/kangaroo/RripBitVector.h"
 #include "cachelib/navy/kangaroo/RripBucket.h"
 #include "cachelib/navy/kangaroo/Types.h"
+#include "cachelib/navy/kangaroo/Wren.h"
 
 namespace facebook {
 namespace cachelib {
@@ -66,7 +66,7 @@ class Kangaroo final : public Engine {
 
     uint64_t numBuckets() const { return totalSetSize / bucketSize; }
 
-    KangarooLog::Config logConfig;
+    FwLog::Config logConfig;
 
     Config& validate();
   };
@@ -74,7 +74,7 @@ class Kangaroo final : public Engine {
   // Throw std::invalid_argument on bad config
   explicit Kangaroo(Config&& config);
 
-  ~Kangaroo() override = default;
+  ~Kangaroo();
 
   Kangaroo(const Kangaroo&) = delete;
   Kangaroo& operator=(const Kangaroo&) = delete;
@@ -156,8 +156,7 @@ class Kangaroo final : public Engine {
   bool bvGetHit(KangarooBucketId bid, uint32_t keyIdx) const;
   void bvSetHit(KangarooBucketId bid, uint32_t keyIdx) const;
 
-  void insertMultipleObjectsToKangarooBucket(std::vector<std::unique_ptr<ObjectInfo>>& ois, 
-      ReadmitCallback readmit);
+  void moveBucket(KangarooBucketId bid, bool logFlush);
 
   // Use birthday paradox to estimate number of mutexes given number of parallel
   // queries and desired probability of lock collision.
@@ -172,21 +171,22 @@ class Kangaroo final : public Engine {
   // Log flushing and gc code, performed on a separate set of threads
   double flushingThreshold_ = 0.1;
   double gcThreshold_ = 0.03;
-  void enterCleaning();
   bool shouldLogFlush(); // not parallel
   bool shouldGC(); // not parallel
   void performGC();
   void performLogFlush();
-  void finishCleaning();
-  void finishGC();
-  void finishLogFlush();
   void cleanSegmentsLoop();
   void cleanSegmentsWaitLoop();
   std::vector<std::thread> cleaningThreads_;
   uint64_t numCleaningThreads_;
-  std::mutex cleaningMutex_;
-  std::condititon_variable cleaningCV_;
-  int startedCleaning_;
+
+  std::mutex cleaningSync_;
+  uint64_t cleaningSyncThreads_ = 0;
+  std::condition_variable cleaningSyncCond_;
+  bool performingLogFlush_ = false;
+  bool performingGC_ = false;
+  Wren::EuIterator euIterator_;
+  bool killThread_ = false;
 
   const DestructorCallback destructorCb_{};
   const uint64_t bucketSize_{};
@@ -194,8 +194,9 @@ class Kangaroo final : public Engine {
   const uint64_t numBuckets_{};
   std::unique_ptr<BloomFilter> bloomFilter_;
   std::unique_ptr<RripBitVector> bitVector_;
-  std::unique_ptr<KangarooLog> log_{nullptr};
-  std::unique_ptr<FairyWREN> wren_device_{nullptr};
+  std::unique_ptr<FwLog> fwLog_{nullptr};
+  bool fwOptimizations_ = true;
+  std::unique_ptr<Wren> wrenDevice_{nullptr};
   std::chrono::nanoseconds generationTime_{};
   Device& device_;
   std::unique_ptr<folly::SharedMutex[]> mutex_{

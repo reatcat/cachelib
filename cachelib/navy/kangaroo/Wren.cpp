@@ -1,13 +1,13 @@
 #include <mutex>
 #include <shared_mutex>
 
-#include "cachelib/navy/kangaroo/FairyWREN.h"
+#include "cachelib/navy/kangaroo/Wren.h"
 
 namespace facebook {
 namespace cachelib {
 namespace navy {
 
-FairyWREN::EuIterator FairyWREN::getEuIterator() {
+Wren::EuIterator Wren::getEuIterator() {
     KangarooBucketId first_kbid = euMetadata_[eraseEraseUnit_].firstKbid_;
     if (first_kbid.index() > numBuckets_) {
         auto ret = EuIterator(first_kbid, first_kbid);
@@ -17,7 +17,7 @@ FairyWREN::EuIterator FairyWREN::getEuIterator() {
     return EuIterator(first_kbid, kbidToEuid_[first_kbid.index()].nextKbid_);
 }
 
-FairyWREN::EuIterator FairyWREN::getNext(EuIterator euit) {
+Wren::EuIterator Wren::getNext(EuIterator euit) {
     if (euit.next_kbid_.index() > numBuckets_) {
         auto ret = EuIterator(euit.next_kbid_, euit.next_kbid_);
         ret.done_ = true;
@@ -26,7 +26,7 @@ FairyWREN::EuIterator FairyWREN::getNext(EuIterator euit) {
     return EuIterator(euit.next_kbid_, kbidToEuid_[euit.next_kbid_.index()].nextKbid_);
 }
 
-FairyWREN::FairyWREN(Device* device, uint64_t numBuckets, uint32_t bucketSize)
+Wren::Wren(Device* device, uint64_t numBuckets, uint32_t bucketSize)
             : device_{device}, 
             numEus_{device_->getIONrOfZones()},
             eraseEraseUnit_{numEus_ - 1},
@@ -37,22 +37,22 @@ FairyWREN::FairyWREN(Device* device, uint64_t numBuckets, uint32_t bucketSize)
     kbidToEuid_ = new EuIdentifier[numBuckets_];
 }
 
-FairyWREN::~FairyWREN() {
+Wren::~Wren() {
     delete euMetadata_;
     delete kbidToEuid_;
 }
 
-FairyWREN::EuId FairyWREN::calcEuId(uint32_t erase_unit, uint32_t offset) {
+Wren::EuId Wren::calcEuId(uint32_t erase_unit, uint32_t offset) {
     uint64_t euOffset = erase_unit * device_->getIOZoneSize();
     return EuId(euOffset + offset);
 }
 
-FairyWREN::EuId FairyWREN::findEuId(KangarooBucketId kbid) {
+Wren::EuId Wren::findEuId(KangarooBucketId kbid) {
     XDCHECK(kbid.index() < numBuckets_);
     return kbidToEuid_[kbid.index()].euid_;
 }
 
-Buffer FairyWREN::read(KangarooBucketId kbid) {
+Buffer Wren::read(KangarooBucketId kbid) {
     EuId euid = findEuId(kbid);
 
     auto buffer = device_->makeIOBuffer(bucketSize_);
@@ -66,7 +66,7 @@ Buffer FairyWREN::read(KangarooBucketId kbid) {
     return buffer;
 }
 
-bool FairyWREN::write(KangarooBucketId kbid, Buffer buffer) {
+bool Wren::write(KangarooBucketId kbid, Buffer buffer) {
     {
         // TODO: deserialize
         std::unique_lock<folly::SharedMutex> lock{writeMutex_};
@@ -91,7 +91,7 @@ bool FairyWREN::write(KangarooBucketId kbid, Buffer buffer) {
     }
 }
 
-bool FairyWREN::shouldClean(double cleaningThreshold) {
+bool Wren::shouldClean(double cleaningThreshold) {
     uint32_t freeEus = 0;
     uint32_t writeEu = writeEraseUnit_;
     if (eraseEraseUnit_ >= writeEu) {
@@ -102,7 +102,7 @@ bool FairyWREN::shouldClean(double cleaningThreshold) {
     return freeEus <= cleaningThreshold;
 }
 
-bool FairyWREN::erase() {
+bool Wren::erase() {
     EuId euid = calcEuId(eraseEraseUnit_, 0);
     eraseEraseUnit_ = (eraseEraseUnit_ + 1) % numEus_;
     return device_->reset(euid.index(), euCap_);
