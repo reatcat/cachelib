@@ -126,7 +126,7 @@ libzbd2)
     REPODIR=cachelib/external/$NAME
     SRCDIR=$REPODIR
     external_git_clone=yes
-    external_git_tag="v0.5.0"
+    external_git_tag="v0.4.0"
     cmake_custom_params="-DBUILD_SHARED_LIBS=ON"
     ;;
 
@@ -136,7 +136,7 @@ libzbd2)
     REPODIR=cachelib/external/$NAME
     SRCDIR=$REPODIR
     external_git_clone=yes
-    external_git_tag="v2.2.2"
+    external_git_tag="v2.2.1"
     cmake_custom_params="-DGFLAGS_BUILD_SHARED_LIBS=YES"
     if test "$build_tests" = "yes" ; then
         cmake_custom_params="$cmake_custom_params -DGFLAGS_BUILD_TESTING=YES"

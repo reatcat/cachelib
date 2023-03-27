@@ -83,7 +83,7 @@ build_fedora_34()
 
 build_dependencies()
 {
-  for pkg in libzbd2 zstd googleflags googlelog googletest sparsemap fmt folly fizz wangle fbthrift ;
+  for pkg in zstd googleflags googlelog googletest sparsemap fmt folly fizz wangle fbthrift ;
   do
     # shellcheck disable=SC2086
     ./contrib/build-package.sh $pass_params "$pkg" \
