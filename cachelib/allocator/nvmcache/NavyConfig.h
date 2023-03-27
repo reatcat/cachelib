@@ -437,9 +437,9 @@ class KangarooConfig {
   // Set bloom filter size per bucket in bytes for Kangaroo engine.
   // 0 means bloom filter will not be applied. Default value is 8.
   KangarooConfig& setLog(unsigned int sizePct, 
+                         uint32_t threshold,
                          uint64_t physicalPartitions,
                          uint64_t indexPerPhysicalParitions,
-                         uint32_t threshold,
                          uint64_t writeGranularity);
 
   bool isBloomFilterEnabled() const { return bucketBfSize_ > 0; }

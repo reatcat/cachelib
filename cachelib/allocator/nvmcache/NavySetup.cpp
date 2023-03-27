@@ -127,9 +127,9 @@ uint64_t setupKangaroo(const navy::KangarooConfig& kangarooConfig,
   if (usesZnsArg.usesZonedDevice_) {
       // entirely separate zones for FairyWREN and BlockCache
       kangarooCacheOffset =
-          alignUp(totalCacheSize - sizeReservedForKangaroo, usesZnsArg.dev_->getIOZoneCapSize());
+          alignUp(totalCacheSize - sizeReservedForKangaroo, usesZnsArg.dev_->getIOZoneSize());
       kangarooCacheSize =
-          alignDown(totalCacheSize - kangarooCacheOffset, usesZnsArg.dev_->getIOZoneCapSize());
+          alignDown(totalCacheSize - kangarooCacheOffset, usesZnsArg.dev_->getIOZoneSize());
       flushGranularity = usesZnsArg.dev_->getIOZoneCapSize();
   }
 
@@ -154,7 +154,9 @@ uint64_t setupKangaroo(const navy::KangarooConfig& kangarooConfig,
   if (kangarooConfig.getLogSizePct()) {
     const uint64_t logSize = alignDown(
             kangarooCacheSize * kangarooConfig.getLogSizePct() / 100ul, 
-            flushGranularity); // for default segment size
+            usesZnsArg.dev_->getIOZoneSize()); // for default segment size
+    XLOGF(INFO, "Kangaroo Setup: Log size {} device io zone size {} write granularity {} flush gran {}", 
+        logSize, usesZnsArg.dev_->getIOZoneSize(), writeGranularity, flushGranularity);
     const uint32_t threshold = kangarooConfig.getLogThreshold();
     const uint64_t indexPerPhysical = kangarooConfig.getIndexPerPhysicalPartitions();
     const uint64_t physical = kangarooConfig.getPhysicalPartitions();
