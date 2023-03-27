@@ -293,8 +293,9 @@ class ZNSDevice : public Device {
 
       bytesWritten = ::pwrite(dev_, value, size, offset);
       if (bytesWritten != size)
-        XLOG(INFO) << "Error Writing to zone! offset" << offset
-          << " size: " << size << " bytesWritten: " << bytesWritten;
+        XLOG(INFO) << "Error Writing to zone! offset: " << offset
+          << " size: " << size << " bytesWritten: " << bytesWritten
+          << " error: " << strerror(errno);
       return bytesWritten == size;
     }
 
@@ -481,13 +482,15 @@ std::unique_ptr<Device> createDirectIoZNSDevice(
     /* minimum zone capacity */
     /* TODO: Done for region size,
     we should be able to map each region to different size */
-    for (count =0, ioZoneCapSize = 0; count < nr_zones; count++)
-      if (!ioZoneCapSize || ioZoneCapSize > report[count].capacity)
-            ioZoneCapSize = report[count].capacity;
+    for (count =0, ioZoneCapSize = 0; count < nr_zones; count++) {
+      if (!ioZoneCapSize || ioZoneCapSize > report[count].capacity) {
+        ioZoneCapSize = report[count].capacity;
+      }
+    }
 
    if (size > actDevSize)
     throw std::invalid_argument(
-      folly::sformat("Size should be alligned to ZNS drive: drive size {} MB", actDevSize/(1024 * 1024)));
+      folly::sformat("Size should be alligned to ZNS drive: drive size {} MB, size {} MB", actDevSize/(1024 * 1024)));
 
     if (size % ioZoneCapSize)
      throw std::invalid_argument(
