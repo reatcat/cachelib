@@ -40,8 +40,21 @@ Buffer FwLog::readLogSegment(LogSegmentId lsid) {
 
 bool FwLog::writeLogSegment(LogSegmentId lsid, Buffer buffer) {
   // TODO: set checksums 
+  uint64_t offset = getLogSegmentOffset(lsid);
+  XLOGF(INFO, "Write: Offset {}, zone size {}, zone cap {}", offset / 4096, device_.getIOZoneSize() / 4096, device_.getIOZoneCapSize() / 4096);
+  if (!(offset % device_.getIOZoneSize())) {
+    XLOGF(INFO, "Write: reseting zone {}", offset / (double) device_.getIOZoneSize());
+    device_.reset(offset, device_.getIOZoneSize());
+  }
   logSegmentsWrittenCount_.inc();
-  return device_.write(getLogSegmentOffset(lsid), std::move(buffer));
+  bool ret =  device_.write(getLogSegmentOffset(lsid), std::move(buffer));
+  if (!((offset + flushGranularity_) % device_.getIOZoneSize())) {
+    uint64_t zone_offset = (offset / device_.getIOZoneSize()) * device_.getIOZoneSize();
+    XLOGF(INFO, "Write: finishing zone {}", zone_offset);
+    device_.finish(offset, device_.getIOZoneSize());
+  }
+
+  return ret;
 }
 
 bool FwLog::eraseSegments(LogSegmentId startLsid) {
@@ -50,6 +63,7 @@ bool FwLog::eraseSegments(LogSegmentId startLsid) {
 
 // only flushes buffer to flash if needed
 bool FwLog::flushLogSegment(uint32_t partition, bool wait) {
+  //XLOGF(INFO, "Flushing Log Segment because of partition {}", partition);
 	if (!bufferMetadataMutex_.try_lock()) {
 		if (wait) {
 			flushLogCv_.wait(bufferMetadataMutex_);
@@ -65,6 +79,9 @@ bool FwLog::flushLogSegment(uint32_t partition, bool wait) {
 		{
 			std::unique_lock<folly::SharedMutex> nextLock{logSegmentMutexs_[updatedOffset]};
 			if (currentLogSegments_[updatedOffset]->getFullness(partition) < overflowLimit_) {
+        XLOGF(INFO, "flushLogSegment: partition fullness {}, limit {}", 
+            currentLogSegments_[updatedOffset]->getFullness(partition), 
+            overflowLimit_);
 				bufferMetadataMutex_.unlock();
 				return true;
 			}
@@ -83,6 +100,8 @@ bool FwLog::flushLogSegment(uint32_t partition, bool wait) {
 			// only works with 2 buffered segments
 			LogSegmentId nextLsid = getNextLsid(lsidFlush);
 
+      //XLOGF(INFO, "Old Lsid {} LBA, segmentSize {}", 
+      //   getLogSegmentOffset(oldLsid) / 4096, segmentSize_);
 			writeLogSegment(oldLsid, std::move(Buffer(logSegmentBuffers_[oldOffset].view(), pageSize_)));
 			currentLogSegments_[oldOffset]->clear(nextLsid);
 		}
@@ -207,14 +226,14 @@ FwLog::FwLog(Config&& config, ValidConfigTag)
       physicalPartitionSize_{logSize_ / logPhysicalPartitions_},
       pagesPerPartitionSegment_{pagesPerSegment_ / logPhysicalPartitions_},
       //nextLsidToClean_{std::make_unique<LogSegmentId>(0, 0)},
-      logSegmentBuffers_{new Buffer[logPhysicalPartitions_]},
+      logSegmentBuffers_{new Buffer[numBufferedLogSegments_]},
       currentLogSegments_{new FwLogSegment*[numBufferedLogSegments_]},
       setNumberCallback_{config.setNumberCallback},
       numIndexEntries_{config.numTotalIndexBuckets},
 			nextLsidToClean_{LogSegmentId(0,0)},
       threshold_{config.threshold} {
   XLOGF(INFO,
-        "Kangaroo Log created: size: {}, read size: {}, segment size: {}, base offset: {}, pages per partition segment {}",
+        "FwLog created: size: {}, read size: {}, segment size: {}, base offset: {}, pages per partition segment {}",
         logSize_,
         pageSize_,
         segmentSize_,
@@ -242,7 +261,7 @@ bool FwLog::shouldClean(double cleaningThreshold) {
   } else {
     freeSegments = nextCleaningLoc + (numSegments_ - nextWriteLoc);
   }
-  return freeSegments <= (numSegments_ * cleaningThreshold_);
+  return freeSegments <= (numSegments_ * cleaningThreshold);
 }
 
 std::vector<std::unique_ptr<ObjectInfo>> FwLog::getObjectsToMove(KangarooBucketId bid, bool checkThreshold) {
@@ -376,6 +395,7 @@ KangarooBucketId FwLog::getNextCleaningBucket() {
 }
 
 double FwLog::falsePositivePct() const {
+  XLOG(INFO, "FwLog false positive");
   return 100. * keyCollisionCount_.get() / (lookupCount_.get() + removeCount_.get());
 }
 
@@ -447,7 +467,7 @@ bool FwLog::couldExist(HashedKey hk) {
 
 Status FwLog::insert(HashedKey hk,
               BufferView value) {
-	// TODO: update for fw log
+  // TODO: update for fw log
   LogPageId lpid;
   LogSegmentId lsid;
   uint64_t physicalPartition = getPhysicalPartition(hk);
@@ -588,6 +608,7 @@ void FwLog::reset() {
   ioErrorCount_.set(0);
   checksumErrorCount_.set(0);
 
+	XLOG(INFO) << "FwLog has segment size: " << segmentSize_;
   for (uint64_t i = 0; i < numBufferedLogSegments_; i++) {
     logSegmentBuffers_[i] = device_.makeIOBuffer(segmentSize_);
     currentLogSegments_[i] = new FwLogSegment(

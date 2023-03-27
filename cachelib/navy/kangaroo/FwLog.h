@@ -29,10 +29,10 @@ class FwLog  {
     Device* device{nullptr};
 
     // log partitioning
-    uint64_t logPhysicalPartitions{};
+    uint64_t logPhysicalPartitions{4};
 
     // for index
-    uint64_t logIndexPartitions{};
+    uint64_t logIndexPartitions{4};
     uint16_t sizeAllocations{1024};
     uint64_t numTotalIndexBuckets{};
     SetNumberCallback setNumberCallback{};
@@ -40,7 +40,6 @@ class FwLog  {
     // for merging to sets
     uint32_t threshold;
     SetMultiInsertCallback setMultiInsertCallback{};
-    uint64_t mergeThreads{16};
 
     uint64_t flushGranularity{};
 

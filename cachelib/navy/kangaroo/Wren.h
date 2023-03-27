@@ -30,7 +30,7 @@ class Wren  {
   };
 
   // Throw std::invalid_argument on bad config
-  explicit Wren(Device* device, uint64_t numBuckets, uint32_t bucketSize);
+  explicit Wren(Device& device, uint64_t numBuckets, uint64_t bucketSize);
   ~Wren();
 
   Wren(const Wren&) = delete;
@@ -45,7 +45,7 @@ class Wren  {
   bool erase(); // will throw error if not all buckets are rewritten
 
  private:
-  Device* device_{nullptr};
+  Device& device_;
 
   // Erase Unit Id
   class EuId {
@@ -97,7 +97,7 @@ class Wren  {
   uint64_t euCap_; // actual erase unit usable capacity
   uint64_t euSize_; // max erase unit capacity (how eus are aligned)
   uint64_t numBuckets_;
-  uint32_t bucketSize_;
+  uint64_t bucketSize_;
 };
 } // namespace navy
 } // namespace cachelib

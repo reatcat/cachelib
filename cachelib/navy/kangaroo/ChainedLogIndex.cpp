@@ -86,7 +86,7 @@ PartitionOffset ChainedLogIndex::lookup(HashedKey hk, bool hit, uint32_t* hits) 
     std::shared_lock<folly::SharedMutex> lock{getMutex(lib)};
     ChainedLogIndexEntry* currentHead = findEntry(index_[lib.index()]);
     while (currentHead) {
-      if (currentHead->isValid() && 
+      if (currentHead && currentHead->isValid() && 
           currentHead->tag() == tag) {
         if (hit) {
           currentHead->incrementHits();
@@ -95,6 +95,8 @@ PartitionOffset ChainedLogIndex::lookup(HashedKey hk, bool hit, uint32_t* hits) 
           *hits = currentHead->hits();
         }
         return currentHead->offset();
+      } else if (!currentHead) {
+        break;
       }
       currentHead = findEntry(currentHead->next());
     }

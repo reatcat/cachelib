@@ -26,11 +26,11 @@ Wren::EuIterator Wren::getNext(EuIterator euit) {
     return EuIterator(euit.next_kbid_, kbidToEuid_[euit.next_kbid_.index()].nextKbid_);
 }
 
-Wren::Wren(Device* device, uint64_t numBuckets, uint32_t bucketSize)
+Wren::Wren(Device& device, uint64_t numBuckets, uint64_t bucketSize)
             : device_{device}, 
-            numEus_{device_->getIONrOfZones()},
+            numEus_{device_.getIONrOfZones()},
             eraseEraseUnit_{numEus_ - 1},
-            euCap_{device_->getIOZoneCapSize()},
+            euCap_{device_.getIOZoneCapSize()},
             numBuckets_{numBuckets}, 
             bucketSize_{bucketSize} {
     euMetadata_ = new EuMetadata[numEus_];
@@ -43,7 +43,7 @@ Wren::~Wren() {
 }
 
 Wren::EuId Wren::calcEuId(uint32_t erase_unit, uint32_t offset) {
-    uint64_t euOffset = erase_unit * device_->getIOZoneSize();
+    uint64_t euOffset = erase_unit * device_.getIOZoneSize();
     return EuId(euOffset + offset);
 }
 
@@ -55,10 +55,10 @@ Wren::EuId Wren::findEuId(KangarooBucketId kbid) {
 Buffer Wren::read(KangarooBucketId kbid) {
     EuId euid = findEuId(kbid);
 
-    auto buffer = device_->makeIOBuffer(bucketSize_);
+    auto buffer = device_.makeIOBuffer(bucketSize_);
     XDCHECK(!buffer.isNull());
 
-    const bool res = device_->read(euid.index(), buffer.size(), buffer.data());
+    const bool res = device_.read(euid.index(), buffer.size(), buffer.data());
     if (!res) {
         return {};
     }
@@ -87,7 +87,7 @@ bool Wren::write(KangarooBucketId kbid, Buffer buffer) {
             writeOffset_ = 0;
         }
 
-        return device_->write(euid.index(), std::move(buffer));
+        return device_.write(euid.index(), std::move(buffer));
     }
 }
 
@@ -105,7 +105,7 @@ bool Wren::shouldClean(double cleaningThreshold) {
 bool Wren::erase() {
     EuId euid = calcEuId(eraseEraseUnit_, 0);
     eraseEraseUnit_ = (eraseEraseUnit_ + 1) % numEus_;
-    return device_->reset(euid.index(), euCap_);
+    return device_.reset(euid.index(), euCap_);
 }
 
 } // namespace navy

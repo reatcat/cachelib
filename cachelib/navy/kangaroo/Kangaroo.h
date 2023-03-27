@@ -58,6 +58,8 @@ class Kangaroo final : public Engine {
     std::unique_ptr<BloomFilter> bloomFilter;
 
     std::unique_ptr<RripBitVector> rripBitVector;
+    
+    uint64_t mergeThreads{16};
 
     // Better to underestimate, used for pre-allocating log index
     // only needed for Kangaroo
@@ -196,9 +198,9 @@ class Kangaroo final : public Engine {
   std::unique_ptr<RripBitVector> bitVector_;
   std::unique_ptr<FwLog> fwLog_{nullptr};
   bool fwOptimizations_ = true;
-  std::unique_ptr<Wren> wrenDevice_{nullptr};
   std::chrono::nanoseconds generationTime_{};
   Device& device_;
+  std::unique_ptr<Wren> wrenDevice_{nullptr};
   std::unique_ptr<folly::SharedMutex[]> mutex_{
       new folly::SharedMutex[kNumMutexes]};
 

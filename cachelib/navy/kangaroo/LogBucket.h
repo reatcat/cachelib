@@ -72,6 +72,8 @@ class FOLLY_PACK_ATTR LogBucket {
   uint64_t generationTime() const { return generationTime_; }
 
   uint32_t size() const { return storage_.numAllocations(); }
+  uint32_t capacity() const { return storage_.capacity(); }
+  uint32_t remainingCapacity() const { return storage_.remainingCapacity(); }
 
   // Look up for the value corresponding to a key.
   // BufferView::isNull() == true if not found.

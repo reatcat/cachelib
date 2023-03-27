@@ -8,7 +8,8 @@ namespace navy {
 FwLogSegment::FwLogSegment(uint64_t segmentSize, 
       uint64_t pageSize, LogSegmentId lsid, uint32_t numPartitions,
       MutableBufferView mutableView, bool newBucket)
-  : segmentSize_{segmentSize},
+  : allocationMutexes_{new folly::SharedMutex[numPartitions]}, 
+	  segmentSize_{segmentSize},
     pageSize_{pageSize},
     numBuckets_{segmentSize_ / pageSize_},
 		numPartitions_{numPartitions},
@@ -27,6 +28,11 @@ FwLogSegment::FwLogSegment(uint64_t segmentSize,
   }
 }
 
+FwLogSegment::~FwLogSegment() {
+	delete[] allocationMutexes_;
+	delete buckets_;
+}
+
 BufferView FwLogSegment::find(HashedKey hk, LogPageId lpid) {
   uint32_t offset = bucketOffset(lpid);
   XDCHECK(offset < numBuckets_);
@@ -40,9 +46,10 @@ BufferView FwLogSegment::findTag(uint32_t tag, HashedKey& hk, LogPageId lpid) {
 }
 
 LogPageId FwLogSegment::insert(HashedKey hk, BufferView value, uint32_t partition) {
+  XDCHECK(partition < numPartitions_);
   KangarooBucketStorage::Allocation alloc;
   uint32_t i = bucketsPerPartition_ * partition;
-	uint32_t endOffset = i + bucketsPerPartition_;
+  uint32_t endOffset = i + bucketsPerPartition_;
   bool foundAlloc = false;
   {
     std::unique_lock<folly::SharedMutex> lock{allocationMutexes_[partition]};
@@ -61,6 +68,7 @@ LogPageId FwLogSegment::insert(HashedKey hk, BufferView value, uint32_t partitio
     return LogPageId(0, false);
   }
   // space already reserved so no need to hold mutex
+  //XLOGF(INFO, "Inserting to bucket {} in partition {}.", i, partition);
   buckets_[i]->insert(alloc, hk, value);
   return getLogPageId(i);
 }
@@ -111,10 +119,14 @@ double FwLogSegment::getFullness(uint32_t partition) {
   uint32_t i = bucketsPerPartition_ * partition;
 	uint32_t endOffset = i + bucketsPerPartition_;
 	uint32_t totalSize = 0;
+  uint32_t remainingSize = 0;
 	for (; i < endOffset;  i++) {
-		totalSize += buckets_[i]->size();
+		totalSize += buckets_[i]->capacity();
+    remainingSize += buckets_[i]->remainingCapacity();
 	}
-	return totalSize / double(bucketsPerPartition_ * pageSize_);
+  //XLOGF(INFO, "Total usable size {}, remaining size {}, allocated {}", 
+  //    totalSize, remainingSize, bucketsPerPartition_ * pageSize_);
+	return remainingSize / double(totalSize);
 }
 
 } // namespace navy

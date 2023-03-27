@@ -76,7 +76,8 @@ Kangaroo::Kangaroo(Config&& config)
     : Kangaroo{std::move(config.validate()), ValidConfigTag{}} {}
 
 Kangaroo::Kangaroo(Config&& config, ValidConfigTag)
-    : destructorCb_{[this, cb = std::move(config.destructorCb)](
+    : numCleaningThreads_{config.mergeThreads},
+      destructorCb_{[this, cb = std::move(config.destructorCb)](
                         HashedKey hk,
                         BufferView value,
                         DestructorEvent event) {
@@ -91,6 +92,7 @@ Kangaroo::Kangaroo(Config&& config, ValidConfigTag)
       bloomFilter_{std::move(config.bloomFilter)},
       bitVector_{std::move(config.rripBitVector)},
       device_{*config.device},
+      wrenDevice_{new Wren(device_, numBuckets_, bucketSize_)},
       sizeDist_{kMinSizeDistribution, bucketSize_,
                 kSizeDistributionGranularityFactor},
       thresholdSizeDist_{10, bucketSize_, 10},
@@ -108,7 +110,18 @@ Kangaroo::Kangaroo(Config&& config, ValidConfigTag)
     config.logConfig.device = config.device;
     fwLog_ = std::make_unique<FwLog>(std::move(config.logConfig));
   }
+
   reset();
+  
+  cleaningThreads_.reserve(numCleaningThreads_);
+	for (uint64_t i = 0; i < numCleaningThreads_; i++) {
+    if (!i) {
+      cleaningThreads_.push_back(std::thread(&Kangaroo::cleanSegmentsLoop, this));
+    } else {
+      cleaningThreads_.push_back(std::thread(&Kangaroo::cleanSegmentsWaitLoop, this));
+    }
+	}
+
 }
 
 void Kangaroo::reset() {
@@ -146,6 +159,7 @@ double Kangaroo::bfFalsePositivePct() const {
 }
 
 void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush) {
+  XLOGF(INFO, "Moving kbid {}", kbid.index());
   insertCount_.inc();
   multiInsertCalls_.inc();
 
@@ -559,12 +573,8 @@ void Kangaroo::flush() {
 }
 
 Buffer Kangaroo::readBucket(KangarooBucketId bid) {
-  auto buffer = device_.makeIOBuffer(bucketSize_);
-  XDCHECK(!buffer.isNull());
-
-  const bool res =
-      device_.read(getBucketOffset(bid), buffer.size(), buffer.data());
-  if (!res) {
+  auto buffer = wrenDevice_->read(bid);
+  if (buffer.isNull()) {
     return {};
   }
 
@@ -589,7 +599,7 @@ Buffer Kangaroo::readBucket(KangarooBucketId bid) {
 bool Kangaroo::writeBucket(KangarooBucketId bid, Buffer buffer) {
   auto* bucket = reinterpret_cast<RripBucket*>(buffer.data());
   bucket->setChecksum(RripBucket::computeChecksum(buffer.view()));
-  return device_.write(getBucketOffset(bid), std::move(buffer));
+  return wrenDevice_->write(bid, std::move(buffer));
 }
 
 bool Kangaroo::shouldLogFlush() {
@@ -661,12 +671,14 @@ void Kangaroo::performGC() {
 }
 
 void Kangaroo::cleanSegmentsLoop() {
+  XLOG(INFO) << "Starting cleanSegmentsLooop";
   while (true) {
     if (killThread_) {
       return;
     }
 
     if (shouldGC()) {
+      XLOG(INFO) << "Starting GC";
       // TODO: update locking mechanism
 			euIterator_ = wrenDevice_->getEuIterator();
 			performingGC_ = true;
@@ -682,6 +694,7 @@ void Kangaroo::cleanSegmentsLoop() {
 			wrenDevice_->erase();
 
     } else if (shouldLogFlush()) {
+      XLOG(INFO) << "Starting Log Flush";
 			// TODO: update locking mechanism
 			fwLog_->startClean();
 			performingLogFlush_ = true;
@@ -695,7 +708,7 @@ void Kangaroo::cleanSegmentsLoop() {
 				}
 			}
 			fwLog_->finishClean();
-    }
+    } 
   }
 }
 
@@ -721,9 +734,6 @@ void Kangaroo::cleanSegmentsWaitLoop() {
 
 Kangaroo::~Kangaroo() {
 	killThread_ = true;
-	for (auto& thread: cleaningThreads_) {
-		thread.join();
-	}
 }
 
 } // namespace navy

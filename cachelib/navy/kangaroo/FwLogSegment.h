@@ -46,7 +46,7 @@ class FwLogSegment  {
       LogSegmentId lsid, uint32_t numPartitions,
       MutableBufferView mutableView, bool newBucket);
 
-  ~FwLogSegment() {delete buckets_;}
+  ~FwLogSegment();
 
   FwLogSegment(const FwLogSegment&) = delete;
   FwLogSegment& operator=(const FwLogSegment&) = delete;
@@ -73,7 +73,7 @@ class FwLogSegment  {
   LogPageId getLogPageId(uint32_t bucketOffset);
   
   // allocation on Kangaroo Bucket lock 
-	std::unique_ptr<folly::SharedMutex[]> allocationMutexes_;
+	folly::SharedMutex* allocationMutexes_;
   
   uint64_t segmentSize_;
   uint64_t pageSize_;
