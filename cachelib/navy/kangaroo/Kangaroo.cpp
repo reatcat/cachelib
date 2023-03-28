@@ -5,7 +5,6 @@
 #include <folly/Format.h>
 
 #include "cachelib/navy/kangaroo/Kangaroo.h"
-#include "cachelib/navy/kangaroo/KangarooLog.h"
 #include "cachelib/navy/kangaroo/RripBucket.h"
 #include "cachelib/navy/common/Utils.h"
 #include "cachelib/navy/serialization/Serialization.h"

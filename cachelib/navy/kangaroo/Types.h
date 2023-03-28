@@ -14,24 +14,25 @@ using BitVectorReadVisitor = std::function<bool(uint32_t)>;
 // Kangaroo Log Structures
 class LogSegmentId {
  public:
-  LogSegmentId(uint32_t idx, uint32_t partition) : idx_{idx}, partition_{partition} {}
+  LogSegmentId(uint32_t offset, uint32_t zone) : 
+    offset_{offset}, zone_{zone} {}
   LogSegmentId() {}
-  LogSegmentId(LogSegmentId& rhs) : idx_{rhs.idx_}, partition_{rhs.partition_} {}
+  LogSegmentId(LogSegmentId& rhs) : 
+    offset_{rhs.offset_}, zone_{rhs.zone_} {}
 
   bool operator==(const LogSegmentId& rhs) const noexcept {
-    return idx_ == rhs.idx_ && partition_ == rhs.partition_;
+    return offset_ == rhs.offset_ && zone_ == rhs.zone_;
   }
   bool operator!=(const LogSegmentId& rhs) const noexcept {
     return !(*this == rhs);
   }
 
-  uint32_t index() const noexcept { return idx_; }
-  uint32_t partition() const noexcept { return partition_; }
+  uint32_t offset() const noexcept { return offset_; }
+  uint32_t zone() const noexcept { return zone_; }
 
  private:
-  uint32_t idx_;
-  uint32_t partition_;
-  uint32_t physical_segment_;
+  uint32_t offset_; // offset in zone
+  uint32_t zone_; // represents the zone
 };
 
 class LogPageId {

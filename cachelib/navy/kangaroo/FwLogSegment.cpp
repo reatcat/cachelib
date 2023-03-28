@@ -45,7 +45,7 @@ BufferView FwLogSegment::findTag(uint32_t tag, HashedKey& hk, LogPageId lpid) {
   return  buckets_[offset]->findTag(tag, hk);
 }
 
-LogPageId FwLogSegment::insert(HashedKey hk, BufferView value, uint32_t partition) {
+int32_t FwLogSegment::insert(HashedKey hk, BufferView value, uint32_t partition) {
   XDCHECK(partition < numPartitions_);
   KangarooBucketStorage::Allocation alloc;
   uint32_t i = bucketsPerPartition_ * partition;
@@ -65,20 +65,16 @@ LogPageId FwLogSegment::insert(HashedKey hk, BufferView value, uint32_t partitio
     }
   }
   if (!foundAlloc) {
-    return LogPageId(0, false);
+    return -1;
   }
   // space already reserved so no need to hold mutex
   //XLOGF(INFO, "Inserting to bucket {} in partition {}.", i, partition);
   buckets_[i]->insert(alloc, hk, value);
-  return getLogPageId(i);
+  return i;
 }
   
 uint32_t FwLogSegment::bucketOffset(LogPageId lpid) {
   return lpid.index() % numBuckets_;
-}
-
-LogPageId FwLogSegment::getLogPageId(uint32_t bucketOffset) {
-  return LogPageId(numBuckets_ * lsid_.index() + bucketOffset, true);
 }
 
 LogSegmentId FwLogSegment::getLogSegmentId() {

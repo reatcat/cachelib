@@ -56,8 +56,8 @@ class FwLogSegment  {
   BufferView find(HashedKey hk, LogPageId lpid);
   BufferView findTag(uint32_t tag, HashedKey& hk, LogPageId lpid);
 
-  // Insert into the segment. Returns invalid page id if there is no room.
-  LogPageId insert(HashedKey hk, BufferView value, uint32_t partition);
+  // Insert into the segment. Returns negative bucket offset if there is no room.
+  int32_t insert(HashedKey hk, BufferView value, uint32_t partition);
 
   LogSegmentId getLogSegmentId();
 
@@ -70,7 +70,6 @@ class FwLogSegment  {
 
  private:
   uint32_t bucketOffset(LogPageId lpid);
-  LogPageId getLogPageId(uint32_t bucketOffset);
   
   // allocation on Kangaroo Bucket lock 
 	folly::SharedMutex* allocationMutexes_;

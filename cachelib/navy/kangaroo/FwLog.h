@@ -109,8 +109,8 @@ class FwLog  {
     return (lpid.index() % pagesPerSegment_) / pagesPerPartitionSegment_;
   }
   uint64_t getLogSegmentOffset(LogSegmentId lsid) const {
-    return logBaseOffset_ + segmentSize_ * lsid.index() 
-      + physicalPartitionSize_ * lsid.partition();
+    return logBaseOffset_ + segmentSize_ * lsid.offset() 
+      + device_.getIOZoneSize() * lsid.zone();
   }
 
   uint64_t getPhysicalPartition(HashedKey hk) const {
@@ -147,18 +147,23 @@ class FwLog  {
 		uint32_t segment_num = lpid.index() / pagesPerSegment_;
     return PartitionOffset(segment_num * pagesPerPartitionSegment_ + segment_offset, lpid.isValid());
   }
-  LogSegmentId getSegmentId(LogPageId lpid) const {
-    uint32_t index = lpid.index() / pagesPerSegment_;
-    return LogSegmentId(index, 0);
+  LogSegmentId getSegmentId(LogPageId lpid) {
+    uint32_t offset = lpid.index() / pagesPerSegment_;
+    uint32_t zone = lpid.index() / device_.getIOZoneSize();
+    return LogSegmentId(offset, zone);
+  }
+  LogPageId getLogPageId(LogSegmentId lsid, int32_t pageOffset) {
+    uint32_t lsidOffset = lsid.offset() * pagesPerSegment_ + lsid.zone() * device_.getIOZoneSize();
+    return LogPageId(lsidOffset + pageOffset, pageOffset >= 0);
   }
 
   LogSegmentId getNextLsid(LogSegmentId lsid);
   
-  // locks based on partition number, concurrent read, single modify
+  // locks based on zone offset, concurrent read, single modify
   folly::SharedMutex& getMutexFromSegment(LogSegmentId lsid) const {
-    return mutex_[(lsid.partition()) & (NumMutexes - 1)];
+    return mutex_[(lsid.offset()) & (NumMutexes - 1)];
   }
-  folly::SharedMutex& getMutexFromPage(LogPageId lpid) const {
+  folly::SharedMutex& getMutexFromPage(LogPageId lpid) {
     return getMutexFromSegment(getSegmentId(lpid));
   }
   
@@ -195,6 +200,8 @@ class FwLog  {
   ChainedLogIndex** index_;
   const SetNumberCallback setNumberCallback_{};
 
+  const uint64_t numLogZones_{};
+  const uint64_t numSegmentsPerZone_{};
   const uint64_t logPhysicalPartitions_{};
   const uint64_t physicalPartitionSize_{};
   const uint64_t pagesPerPartitionSegment_{};

@@ -41,15 +41,15 @@ Buffer FwLog::readLogSegment(LogSegmentId lsid) {
 bool FwLog::writeLogSegment(LogSegmentId lsid, Buffer buffer) {
   // TODO: set checksums 
   uint64_t offset = getLogSegmentOffset(lsid);
-  XLOGF(INFO, "Write: Offset {}, zone size {}, zone cap {}", offset / 4096, device_.getIOZoneSize() / 4096, device_.getIOZoneCapSize() / 4096);
-  if (!(offset % device_.getIOZoneSize())) {
+  //XLOGF(INFO, "Write: Offset {}, zone size {}, zone cap {}", offset / 4096, device_.getIOZoneSize() / 4096, device_.getIOZoneCapSize() / 4096);
+  if (lsid.offset() == 0) {
     XLOGF(INFO, "Write: reseting zone {}", offset / (double) device_.getIOZoneSize());
     device_.reset(offset, device_.getIOZoneSize());
   }
   logSegmentsWrittenCount_.inc();
   bool ret =  device_.write(getLogSegmentOffset(lsid), std::move(buffer));
-  if (!((offset + flushGranularity_) % device_.getIOZoneSize())) {
-    uint64_t zone_offset = (offset / device_.getIOZoneSize()) * device_.getIOZoneSize();
+  if (getNextLsid(lsid).offset() == 0) {
+    uint64_t zone_offset = getLogSegmentOffset(LogSegmentId(0, lsid.zone()));
     XLOGF(INFO, "Write: finishing zone {}", zone_offset);
     device_.finish(offset, device_.getIOZoneSize());
   }
@@ -115,7 +115,10 @@ bool FwLog::flushLogSegment(uint32_t partition, bool wait) {
 
 LogSegmentId FwLog::getNextLsid(LogSegmentId lsid) {
 	// partitions within segment so partition # doesn't matter
-  return LogSegmentId((lsid.index() + 1) % numSegments_, 0);
+  if (lsid.offset() + 1 > numSegmentsPerZone_) {
+    return LogSegmentId(0, (lsid.zone() + 1) % numLogZones_);
+  }
+  return LogSegmentId(lsid.offset() + 1, lsid.zone());
 }
 
 FwLog::~FwLog() {
@@ -207,6 +210,10 @@ FwLog::Config& FwLog::Config::validate() {
   if (numTotalIndexBuckets == 0) {
       throw std::invalid_argument("need to have a number of index buckets");
   }
+  
+  if (flushGranularity % segmentSize != 0) {
+      throw std::invalid_argument("flushGranularity should be a multiple of writeGranularity");
+  }
 
   return *this;
 }
@@ -222,6 +229,8 @@ FwLog::FwLog(Config&& config, ValidConfigTag)
       device_{*config.device},
       logIndexPartitions_{config.logIndexPartitions},
       index_{new ChainedLogIndex*[logIndexPartitions_]},
+      numLogZones_{logSize_ / device_.getIOZoneSize()},
+      numSegmentsPerZone_{numSegments_ / numLogZones_},
       logPhysicalPartitions_{config.logPhysicalPartitions},
       physicalPartitionSize_{logSize_ / logPhysicalPartitions_},
       pagesPerPartitionSegment_{pagesPerSegment_ / logPhysicalPartitions_},
@@ -239,6 +248,7 @@ FwLog::FwLog(Config&& config, ValidConfigTag)
         segmentSize_,
         logBaseOffset_,
 				pagesPerPartitionSegment_);
+  XLOGF(INFO, "FwLog: num zones {}, segments per zone {}", numLogZones_, numSegmentsPerZone_);
   for (uint64_t i = 0; i < logIndexPartitions_; i++) {
     index_[i] = new ChainedLogIndex(numIndexEntries_ / logIndexPartitions_, 
             config.sizeAllocations, setNumberCallback_);
@@ -253,8 +263,10 @@ bool FwLog::shouldClean(double cleaningThreshold) {
 		std::shared_lock<folly::SharedMutex> nextLock{logSegmentMutexs_[bufferedSegmentOffset_]};
 		currentLsid = currentLogSegments_[bufferedSegmentOffset_]->getLogSegmentId();
 	}
-	uint64_t nextWriteLoc = getNextLsid(currentLsid).index();
-	uint64_t nextCleaningLoc = nextLsidToClean_.index();
+
+  auto nextLsid = getNextLsid(currentLsid);
+	uint64_t nextWriteLoc = nextLsid.offset() + nextLsid.zone() * flushGranularity_;
+	uint64_t nextCleaningLoc = nextLsidToClean_.offset() + nextLsidToClean_.zone() * flushGranularity_;
   uint64_t freeSegments = 0;
   if (nextCleaningLoc >= nextWriteLoc) {
     freeSegments = nextCleaningLoc - nextWriteLoc;
@@ -479,7 +491,9 @@ Status FwLog::insert(HashedKey hk,
     // lock to prevent write out of segment
 		uint32_t bufferNum = (i + bufferedSegmentOffset_) % numBufferedLogSegments_;
     std::shared_lock<folly::SharedMutex> lock{logSegmentMutexs_[bufferNum]};
-    lpid = currentLogSegments_[bufferNum]->insert(hk, value, physicalPartition);
+    lpid = getLogPageId(
+        currentLogSegments_[bufferedSegmentOffset_]->getLogSegmentId(),
+        currentLogSegments_[bufferedSegmentOffset_]->insert(hk, value, physicalPartition));
     if (lpid.isValid()) {
 			buffer = bufferNum;
 			break;
@@ -527,7 +541,9 @@ void FwLog::readmit(HashedKey hk,
     // logSegment handles concurrent inserts
     // lock to prevent write out of segment
     std::shared_lock<folly::SharedMutex> lock{logSegmentMutexs_[bufferedSegmentOffset_]};
-    lpid = currentLogSegments_[bufferedSegmentOffset_]->insert(hk, value, physicalPartition);
+    lpid = getLogPageId(
+        currentLogSegments_[bufferedSegmentOffset_]->getLogSegmentId(),
+        currentLogSegments_[bufferedSegmentOffset_]->insert(hk, value, physicalPartition));
     if (!lpid.isValid()) {
         // no room in segment so will not insert
         readmitRequestsFailed_.inc();
