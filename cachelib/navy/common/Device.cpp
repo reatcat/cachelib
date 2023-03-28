@@ -501,6 +501,9 @@ std::unique_ptr<Device> createDirectIoZNSDevice(
         nr_zones = size/ioZoneCapSize;
     zoneMask = info->zone_size - 1;
 
+    XLOGF(INFO, "Creating ZNS Device with zoneSize {} zoneCap {} size {}",
+        zoneMask + 1, ioZoneCapSize, size);
+
     return std::make_unique<ZNSDevice>(std::move(fd), std::move(info),
                                       std::move(report), std::move(nr_zones),
                                       zoneMask, size, ioAlignSize,

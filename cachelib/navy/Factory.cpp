@@ -209,6 +209,7 @@ class KangarooProtoImpl final : public KangarooProto {
         config_.numBuckets() % (indexPartitionsPerPhysical * physicalPartitions);
     config_.logConfig.segmentSize = writeGranularity;
     config_.logConfig.flushGranularity = flushGranularity;
+    XLOGF(INFO, "Set up kangaroo with {} index partitions and {} physical partitions", indexPartitionsPerPhysical, physicalPartitions);
   }
 
   void setDevice(Device* device) { config_.device = device; }

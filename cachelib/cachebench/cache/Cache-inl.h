@@ -177,6 +177,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
     }
     
     if (config_.navyKangarooSizePct > 0) {
+        XLOG(INFO) << "looking at Kangaroo config" << std::endl;
         nvmConfig.navyConfig.setKangaroo(config_.navyKangarooSizePct,
                                          config_.navyKangarooBucketSize,
                                          config_.navyBloomFilterPerBucketSize,
