@@ -116,20 +116,15 @@ uint64_t setupKangaroo(const navy::KangarooConfig& kangarooConfig,
   // If enabled, Kangaroo storage starts after BlockCache's.
   const auto sizeReservedForKangaroo =
       totalCacheSize * kangarooConfig.getSizePct() / 100ul;
+  uint64_t kangarooNumZones = sizeReservedForKangaroo / usesZnsArg.dev_->getIOZoneCapSize();
+  uint64_t kangarooCacheSize = kangarooNumZones * usesZnsArg.dev_->getIOZoneCapSize();
+  uint64_t kangarooZoneOffset = totalCacheSize / usesZnsArg.dev_->getIOZoneCapSize() - kangarooNumZones;
+  uint64_t kangarooCacheOffset = kangarooZoneOffset * usesZnsArg.dev_->getIOZoneSize();
 
-  uint64_t kangarooCacheOffset =
-      alignUp(totalCacheSize - sizeReservedForKangaroo, bucketSize);
-  uint64_t kangarooCacheSize =
-      alignDown(totalCacheSize - kangarooCacheOffset, bucketSize);
   uint64_t writeGranularity = kangarooConfig.getWriteGran();
   uint64_t flushGranularity = writeGranularity;
   
   if (usesZnsArg.usesZonedDevice_) {
-      // entirely separate zones for FairyWREN and BlockCache
-      kangarooCacheOffset =
-          alignUp(totalCacheSize - sizeReservedForKangaroo, usesZnsArg.dev_->getIOZoneSize());
-      kangarooCacheSize =
-          alignDown(totalCacheSize - kangarooCacheOffset, usesZnsArg.dev_->getIOZoneSize());
       flushGranularity = usesZnsArg.dev_->getIOZoneCapSize();
   }
 
@@ -154,13 +149,20 @@ uint64_t setupKangaroo(const navy::KangarooConfig& kangarooConfig,
   if (kangarooConfig.getLogSizePct()) {
     const uint64_t logSize = alignDown(
             kangarooCacheSize * kangarooConfig.getLogSizePct() / 100ul, 
-            usesZnsArg.dev_->getIOZoneSize()); // for default segment size
-    XLOGF(INFO, "Kangaroo Setup: Log size {} device io zone size {} write granularity {} flush gran {}", 
-        logSize, usesZnsArg.dev_->getIOZoneSize(), writeGranularity, flushGranularity);
+            usesZnsArg.dev_->getIOZoneCapSize()); // for default segment size
+    const uint64_t logNumZones = logSize / usesZnsArg.dev_->getIOZoneCapSize();
+    const uint64_t logBaseOffset = kangarooCacheOffset 
+      + (kangarooNumZones - logNumZones) * usesZnsArg.dev_->getIOZoneSize();
+    XLOGF(INFO, "setupKangaroo logBaseOffset zone {} kangaroo offset zone {} kangaroo num zones {} total zones {}", 
+        logBaseOffset / usesZnsArg.dev_->getIOZoneSize(),
+        kangarooCacheOffset / usesZnsArg.dev_->getIOZoneSize(),
+        kangarooNumZones, usesZnsArg.dev_->getIONrOfZones());
+
     const uint32_t threshold = kangarooConfig.getLogThreshold();
     const uint64_t indexPerPhysical = kangarooConfig.getIndexPerPhysicalPartitions();
     const uint64_t physical = kangarooConfig.getPhysicalPartitions();
-    kangaroo->setLog(logSize, threshold, physical, indexPerPhysical, writeGranularity, flushGranularity);
+    kangaroo->setLog(logSize, logBaseOffset, threshold, 
+        physical, indexPerPhysical, writeGranularity, flushGranularity);
   }
 
   proto.setKangaroo(std::move(kangaroo), kangarooConfig.getSmallItemMaxSize());

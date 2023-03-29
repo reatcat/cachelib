@@ -35,7 +35,7 @@ Kangaroo::Config& Kangaroo::Config::validate() {
 
   if (totalSetSize > uint64_t{bucketSize} << 32) {
     throw std::invalid_argument(folly::sformat(
-        "Can't address big hash with 32 bits. Cache size: {}, bucket size: {}",
+        "Can't address Kangaroo with 32 bits. Cache size: {}, bucket size: {}",
         totalSetSize,
         bucketSize));
   }

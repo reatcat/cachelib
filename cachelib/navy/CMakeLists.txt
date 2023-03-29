@@ -40,7 +40,6 @@ add_library (cachelib_navy
   kangaroo/FwLog.cpp
   kangaroo/FwLogSegment.cpp
   kangaroo/Kangaroo.cpp
-  kangaroo/KangarooLogSegment.cpp
   kangaroo/KangarooBucketStorage.cpp
   kangaroo/LogBucket.cpp
   kangaroo/RripBucket.cpp

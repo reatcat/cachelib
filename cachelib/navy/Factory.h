@@ -126,6 +126,7 @@ class KangarooProto {
 
   // Enable part of cache space to be log
   virtual void setLog(uint64_t logSize, 
+                      uint64_t logBaseOffset,
                       uint32_t threshold,
                       uint32_t physicalPartitions,
                       uint32_t indexPartitionsPerPhysical,

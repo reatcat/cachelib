@@ -193,15 +193,17 @@ class KangarooProtoImpl final : public KangarooProto {
     hashTableBitSize_ = hashTableBitSize;
   }
 
-  void setLog(uint64_t logSize, 
+  void setLog(uint64_t logSize,
+              uint64_t logBaseOffset,
               uint32_t threshold,
               uint32_t physicalPartitions,
               uint32_t indexPartitionsPerPhysical,
               uint64_t writeGranularity,
               uint64_t flushGranularity) override {
     config_.logConfig.logSize = logSize;
+    XLOGF(INFO, "setLog logSize {} kangaroo size {}", logSize, config_.totalSetSize);
     config_.totalSetSize = config_.totalSetSize - logSize;
-    config_.logConfig.logBaseOffset = config_.cacheBaseOffset + config_.totalSetSize;
+    config_.logConfig.logBaseOffset = logBaseOffset;
     config_.logConfig.threshold = threshold;
     config_.logIndexPartitionsPerPhysical = indexPartitionsPerPhysical;
     config_.logConfig.logPhysicalPartitions = physicalPartitions;

@@ -310,7 +310,8 @@ class ZNSDevice : public Device {
 
 bool Device::write(uint64_t offset, Buffer buffer) {
   const auto size = buffer.size();
-  XDCHECK_LE(offset + buffer.size(), size_);
+  // TODO: fix to work on non-ZNS drives
+  XDCHECK_LE(offset + buffer.size(), ioNoOfZones_ * ioZoneSize_);
   uint8_t* data = reinterpret_cast<uint8_t*>(buffer.data());
   XDCHECK_EQ(reinterpret_cast<uint64_t>(data) % ioAlignmentSize_, 0ul);
   if (encryptor_) {
@@ -361,7 +362,7 @@ bool Device::readInternal(uint64_t offset, uint32_t size, void* value) {
   XDCHECK_EQ(reinterpret_cast<uint64_t>(value) % ioAlignmentSize_, 0ul);
   XDCHECK_EQ(offset % ioAlignmentSize_, 0ul);
   XDCHECK_EQ(size % ioAlignmentSize_, 0ul);
-  XDCHECK_LE(offset + size, size_);
+  XDCHECK_LE(offset + size, ioNoOfZones_ * ioZoneSize_);
   auto timeBegin = getSteadyClock();
   bool result = readImpl(offset, size, value);
   readLatencyEstimator_.trackValue(
@@ -393,7 +394,7 @@ bool Device::readInternal(uint64_t offset, uint32_t size, void* value) {
 // An empty buffer is returned in case of error and the caller must check
 // the buffer size returned with size passed in to check for errors.
 Buffer Device::read(uint64_t offset, uint32_t size) {
-  XDCHECK_LE(offset + size, size_);
+  XDCHECK_LE(offset + size, ioNoOfZones_ * ioZoneSize_);
   uint64_t readOffset =
       offset & ~(static_cast<uint64_t>(ioAlignmentSize_) - 1ul);
   uint64_t readPrefixSize =
@@ -463,6 +464,8 @@ std::unique_ptr<Device> createDirectIoZNSDevice(
     uint64_t ioZoneCapSize, actDevSize;
      int count;
 
+     int HACK = 25165824; // TODO: remove;
+
     info = new zbd_info();
     fd = zbd_open(fileName.c_str(), flags, info);
     if (fd <0) {
@@ -477,24 +480,27 @@ std::unique_ptr<Device> createDirectIoZNSDevice(
     }
 
     for (count =0, actDevSize = 0; count < nr_zones; count++)
-        actDevSize += report[count].capacity;
+        actDevSize += HACK; // += report[count].capacity;
 
     /* minimum zone capacity */
     /* TODO: Done for region size,
     we should be able to map each region to different size */
     for (count =0, ioZoneCapSize = 0; count < nr_zones; count++) {
-      if (!ioZoneCapSize || ioZoneCapSize > report[count].capacity) {
-        ioZoneCapSize = report[count].capacity;
+      if (!ioZoneCapSize || ioZoneCapSize > HACK) { // (report[count].capacity / HACK)) {
+        ioZoneCapSize = HACK; //report[count].capacity;
       }
     }
 
    if (size > actDevSize)
     throw std::invalid_argument(
-      folly::sformat("Size should be alligned to ZNS drive: drive size {} MB, size {} MB", actDevSize/(1024 * 1024)));
+      folly::sformat("Size is larger than ZNS drive: drive size {} MB, size {} MB", 
+        actDevSize/(1024 * 1024), size / (1024 * 1024)));
 
+    XLOGF(INFO, "device setup: {} size, zone cap {}", size, ioZoneCapSize);
     if (size % ioZoneCapSize)
      throw std::invalid_argument(
-       folly::sformat("Size should be alligned to ZNS drive: capacity {} MB: Needed Size: {} MB", ioZoneCapSize/(1024 * 1024),
+       folly::sformat("Size should be alligned to zone capacity: capacity {} MB: Needed Size: {} MB", 
+         ioZoneCapSize/(1024 * 1024),
          (((size/ ioZoneCapSize) + 1) * ioZoneCapSize)/(1024 * 1024)));
 
     if (size < actDevSize)
