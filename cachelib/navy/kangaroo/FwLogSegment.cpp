@@ -122,7 +122,7 @@ double FwLogSegment::getFullness(uint32_t partition) {
 	}
   //XLOGF(INFO, "Total usable size {}, remaining size {}, allocated {}", 
   //    totalSize, remainingSize, bucketsPerPartition_ * pageSize_);
-	return remainingSize / double(totalSize);
+	return (totalSize - remainingSize) / double(totalSize);
 }
 
 } // namespace navy

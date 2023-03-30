@@ -41,7 +41,6 @@ Buffer FwLog::readLogSegment(LogSegmentId lsid) {
 bool FwLog::writeLogSegment(LogSegmentId lsid, Buffer buffer) {
   // TODO: set checksums 
   uint64_t offset = getLogSegmentOffset(lsid);
-  //XLOGF(INFO, "Write: Offset {}, zone size {}, zone cap {}", offset / 4096, device_.getIOZoneSize() / 4096, device_.getIOZoneCapSize() / 4096);
   if (lsid.offset() == 0) {
     XLOGF(INFO, "Write: reseting zone {}", offset / (double) device_.getIOZoneSize());
     device_.reset(offset, device_.getIOZoneSize());
@@ -50,7 +49,7 @@ bool FwLog::writeLogSegment(LogSegmentId lsid, Buffer buffer) {
   bool ret =  device_.write(getLogSegmentOffset(lsid), std::move(buffer));
   if (getNextLsid(lsid).offset() == 0) {
     uint64_t zone_offset = getLogSegmentOffset(LogSegmentId(0, lsid.zone()));
-    XLOGF(INFO, "Write: finishing zone {}", zone_offset);
+    XLOGF(INFO, "Write: finishing zone {}", zone_offset / (double) device_.getIOZoneSize());
     device_.finish(offset, device_.getIOZoneSize());
   }
 
@@ -79,9 +78,6 @@ bool FwLog::flushLogSegment(uint32_t partition, bool wait) {
 		{
 			std::unique_lock<folly::SharedMutex> nextLock{logSegmentMutexs_[updatedOffset]};
 			if (currentLogSegments_[updatedOffset]->getFullness(partition) < overflowLimit_) {
-        XLOGF(INFO, "flushLogSegment: partition fullness {}, limit {}", 
-            currentLogSegments_[updatedOffset]->getFullness(partition), 
-            overflowLimit_);
 				bufferMetadataMutex_.unlock();
 				return true;
 			}
@@ -229,7 +225,7 @@ FwLog::FwLog(Config&& config, ValidConfigTag)
       device_{*config.device},
       logIndexPartitions_{config.logIndexPartitions},
       index_{new ChainedLogIndex*[logIndexPartitions_]},
-      numLogZones_{logSize_ / device_.getIOZoneSize()},
+      numLogZones_{logSize_ / device_.getIOZoneCapSize()},
       numSegmentsPerZone_{numSegments_ / numLogZones_},
       logPhysicalPartitions_{config.logPhysicalPartitions},
       physicalPartitionSize_{logSize_ / logPhysicalPartitions_},
@@ -492,12 +488,12 @@ Status FwLog::insert(HashedKey hk,
 		uint32_t bufferNum = (i + bufferedSegmentOffset_) % numBufferedLogSegments_;
     std::shared_lock<folly::SharedMutex> lock{logSegmentMutexs_[bufferNum]};
     lpid = getLogPageId(
-        currentLogSegments_[bufferedSegmentOffset_]->getLogSegmentId(),
-        currentLogSegments_[bufferedSegmentOffset_]->insert(hk, value, physicalPartition));
+        currentLogSegments_[bufferNum]->getLogSegmentId(),
+        currentLogSegments_[bufferNum]->insert(hk, value, physicalPartition));
     if (lpid.isValid()) {
 			buffer = bufferNum;
 			break;
-    }
+    } 
   }
 
 	Status ret;
@@ -671,7 +667,7 @@ Status FwLog::lookupBufferedTag(uint32_t tag, HashedKey& hk,
 	uint32_t buffer = numBufferedLogSegments_ + 1;
 	LogSegmentId lsid = getSegmentId(lpid);
 	for (uint32_t i = 0; i < numBufferedLogSegments_; i++) {
-		if (lsid == currentLogSegments_[buffer]->getLogSegmentId()) {
+		if (lsid == currentLogSegments_[i]->getLogSegmentId()) {
 			buffer = i;
 			break;
 		}
