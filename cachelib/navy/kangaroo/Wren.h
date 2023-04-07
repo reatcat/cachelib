@@ -30,7 +30,8 @@ class Wren  {
   };
 
   // Throw std::invalid_argument on bad config
-  explicit Wren(Device& device, uint64_t numBuckets, uint64_t bucketSize);
+  explicit Wren(Device& device, uint64_t numBuckets, 
+      uint64_t bucketSize, uint64_t totalSize, uint64_t setOffset);
   ~Wren();
 
   Wren(const Wren&) = delete;
@@ -81,7 +82,8 @@ class Wren  {
 
   EuId calcEuId(uint32_t erase_unit, uint32_t offset);
   EuId findEuId(KangarooBucketId kbid);
-  uint32_t calcZone(EuId zbid);
+  uint64_t getEuIdLoc(EuId euid);
+  uint64_t getEuIdLoc(uint32_t erase_unit, uint32_t offset);
 
   // page to zone and offset mapping
   EuIdentifier* kbidToEuid_;
@@ -93,11 +95,12 @@ class Wren  {
   uint64_t eraseEraseUnit_{0};
   uint32_t writeOffset_{0};
   uint64_t cleaningThreshold_{2};
-  uint64_t numEus_;
   uint64_t euCap_; // actual erase unit usable capacity
+  uint64_t numEus_;
   uint64_t euSize_; // max erase unit capacity (how eus are aligned)
   uint64_t numBuckets_;
   uint64_t bucketSize_;
+  uint64_t setOffset_;
 };
 } // namespace navy
 } // namespace cachelib

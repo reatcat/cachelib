@@ -104,6 +104,13 @@ FwLogSegment::Iterator* FwLogSegment::getNext(Iterator* itr) {
   } else if (nextItr.done()) {
     itr->bucketNum_++;
     itr->itr_ = buckets_[itr->bucketNum_]->getFirst();
+    //XLOGF(INFO, "Updating bucket to {} / {}, itr good {}", 
+    //    itr->bucketNum_, bucketsPerPartition_ * numPartitions_, itr->itr_.done());
+    //XDCHECK(itr->itr_.keyHash() >= 0);
+    //XLOGF(INFO, "Starting with key hash {}", itr->itr_.keyHash());
+    if (itr->itr_.done()) {
+      return getNext(itr);
+    }
     return itr;
   } else {
     itr->itr_ = nextItr;

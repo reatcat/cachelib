@@ -101,7 +101,7 @@ class FwLog  {
   bool writeLogSegment(LogSegmentId lsid, Buffer buffer);
   bool eraseSegments(LogSegmentId startLsid);
 
-  bool isBuffered(LogPageId lpid, uint64_t physicalPartition); // does not grab logSegmentMutex mutex
+  bool isBuffered(LogPageId lpid, uint32_t buffer); // does not grab logSegmentMutex mutex
   Status lookupBuffered(HashedKey hk, Buffer& value, LogPageId lpid);
   Status lookupBufferedTag(uint32_t tag, HashedKey& hk, Buffer& value, LogPageId lpid);
 
@@ -158,6 +158,7 @@ class FwLog  {
   }
 
   LogSegmentId getNextLsid(LogSegmentId lsid);
+  LogSegmentId getNextLsid(LogSegmentId lsid, uint32_t increment);
   
   // locks based on zone offset, concurrent read, single modify
   folly::SharedMutex& getMutexFromSegment(LogSegmentId lsid) const {
@@ -171,12 +172,10 @@ class FwLog  {
 	Buffer cleaningBuffer_;
 	std::unique_ptr<FwLogSegment> cleaningSegment_ = nullptr;
 	FwLogSegment::Iterator* cleaningSegmentIt_ = nullptr;
-  void cleanSegment(LogSegmentId lsid);
-  void cleanSegmentsLoop(uint64_t threadId);
-  bool shouldWakeCompaction(uint64_t threadId);
   void moveBucket(HashedKey hk, uint64_t count, LogSegmentId lsidToFlush);
   void readmit(HashedKey hk, BufferView value);
 	bool flushLogSegment(uint32_t partition, bool wait);
+  bool flushLogOnce_ = false;
 
   // Use birthday paradox to estimate number of mutexes given number of parallel
   // queries and desired probability of lock collision.
@@ -215,6 +214,8 @@ class FwLog  {
   std::unique_ptr<folly::SharedMutex[]> logSegmentMutexs_;
 	folly::SharedMutex bufferMetadataMutex_;
   std::condition_variable_any flushLogCv_;
+  std::condition_variable_any cleaningCv_;
+  folly::SharedMutex cleaningMutex_;
   Buffer* logSegmentBuffers_;
 
   LogSegmentId nextLsidToClean_;

@@ -91,7 +91,8 @@ Kangaroo::Kangaroo(Config&& config, ValidConfigTag)
       bloomFilter_{std::move(config.bloomFilter)},
       bitVector_{std::move(config.rripBitVector)},
       device_{*config.device},
-      wrenDevice_{new Wren(device_, numBuckets_, bucketSize_)},
+      wrenDevice_{new Wren(device_, numBuckets_, bucketSize_, 
+                config.totalSetSize, cacheBaseOffset_)},
       sizeDist_{kMinSizeDistribution, bucketSize_,
                 kSizeDistributionGranularityFactor},
       thresholdSizeDist_{10, bucketSize_, 10},
@@ -158,7 +159,6 @@ double Kangaroo::bfFalsePositivePct() const {
 }
 
 void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush) {
-  XLOGF(INFO, "Moving kbid {}", kbid.index());
   insertCount_.inc();
   multiInsertCalls_.inc();
 
@@ -170,13 +170,16 @@ void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush) {
   uint64_t passedCount = 0;
 
 	std::vector<std::unique_ptr<ObjectInfo>> ois;
-	if (logFlush || fwOptimizations_) {
-		ois = fwLog_->getObjectsToMove(kbid, logFlush);
-	}
-    
-    
   {
     std::unique_lock<folly::SharedMutex> lock{getMutex(kbid)};
+
+    if (logFlush || fwOptimizations_) {
+      ois = fwLog_->getObjectsToMove(kbid, logFlush);
+    }
+    if (!ois.size() && logFlush) {
+      return; // still need to move bucket if gc caused
+    }
+    
     auto buffer = readBucket(kbid);
     if (buffer.isNull()) {
       ioErrorCount_.inc();
@@ -186,6 +189,7 @@ void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush) {
     auto* bucket = reinterpret_cast<RripBucket*>(buffer.data());
     bucket->reorder([&](uint32_t keyIdx) {return bvGetHit(kbid, keyIdx);});
     bitVector_->clear(kbid.index());
+    //XLOGF(INFO, "Read bucket {}", kbid.index());
 
     for (auto& oi: ois) {
       passedItemSize += oi->key.key().size() + oi->value.size();
@@ -197,11 +201,13 @@ void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush) {
         sizeDist_.addSize(oi->key.key().size() + oi->value.size());
         insertCount++;
       } else {
+        XLOGF(INFO, "Readmitting {}", kbid.index());
         fwLog_->readmit(oi);
         readmitInsertCount_.inc();
       }
     }
 
+    //XLOGF(INFO, "Write bucket {}", kbid.index());
     const auto res = writeBucket(kbid, std::move(buffer));
     if (!res) {
       if (bloomFilter_) {
@@ -228,6 +234,7 @@ void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush) {
   succInsertCount_.add(insertCount);
         
   physicalWrittenCount_.add(bucketSize_);
+  //XLOGF(INFO, "Finish bucket {}", kbid.index());
   return;
 }
 
@@ -619,16 +626,17 @@ void Kangaroo::performLogFlush() {
 		KangarooBucketId kbid = KangarooBucketId(0);
 		{
 			std::unique_lock<std::mutex> lock{cleaningSync_};
-			if (!fwLog_->cleaningDone()) {
+			if (performingLogFlush_ && !fwLog_->cleaningDone()) {
 				kbid = fwLog_->getNextCleaningBucket();
 			} else {
 				break;
 			}
 		}
+    //XLOGF(INFO, "Moving kbid {}", kbid.index());
 		moveBucket(kbid, true);
 	}
-
-	performingLogFlush_ = false;
+	      
+  performingLogFlush_ = false;
 	{
     std::unique_lock<std::mutex> lock{cleaningSync_};
 		cleaningSyncThreads_--;
@@ -649,13 +657,14 @@ void Kangaroo::performGC() {
 		KangarooBucketId kbid = KangarooBucketId(0);
 		{
 			std::unique_lock<std::mutex> lock{cleaningSync_};
-			if (!euIterator_.done()) {
+			if (performingGC_ && !euIterator_.done()) {
 				kbid = euIterator_.getBucket();
 				euIterator_ = wrenDevice_->getNext(euIterator_);
 			} else {
 				break;
 			}
 		}
+    XLOGF(INFO, "Moving kbid {}", kbid.index());
 		moveBucket(kbid, false);
 	}
 
@@ -673,7 +682,7 @@ void Kangaroo::cleanSegmentsLoop() {
   XLOG(INFO) << "Starting cleanSegmentsLooop";
   while (true) {
     if (killThread_) {
-      return;
+      break;
     }
 
     if (shouldGC()) {
@@ -698,6 +707,8 @@ void Kangaroo::cleanSegmentsLoop() {
 			fwLog_->startClean();
 			performingLogFlush_ = true;
 			cleaningSyncCond_.notify_all();
+
+      XLOG(INFO) << "After notify_all";
       performLogFlush();
 
 			{
@@ -709,13 +720,15 @@ void Kangaroo::cleanSegmentsLoop() {
 			fwLog_->finishClean();
     } 
   }
+	cleaningSyncCond_.notify_all();
+  exit(0);
 }
 
 void Kangaroo::cleanSegmentsWaitLoop() {
 	// TODO: figure out locking
   while (true) {
     if (killThread_) {
-      return;
+      break;
     }
 
     if (performingGC_) {
@@ -729,6 +742,7 @@ void Kangaroo::cleanSegmentsWaitLoop() {
 			cleaningSyncCond_.wait(lock);
 		}
   }
+  exit(0);
 }
 
 Kangaroo::~Kangaroo() {
