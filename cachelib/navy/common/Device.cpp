@@ -292,10 +292,11 @@ class ZNSDevice : public Device {
       ssize_t bytesWritten;
 
       bytesWritten = ::pwrite(dev_, value, size, offset);
-      if (bytesWritten != size)
+      if (bytesWritten != size) {
         XLOG(INFO) << "Error Writing to zone! offset: " << offset
           << " size: " << size << " bytesWritten: " << bytesWritten
           << " error: " << strerror(errno);
+      }
       return bytesWritten == size;
     }
 
