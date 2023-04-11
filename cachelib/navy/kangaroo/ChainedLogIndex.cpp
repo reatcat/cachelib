@@ -29,16 +29,12 @@ ChainedLogIndex::ChainedLogIndex(uint64_t numHashBuckets,
   }
 }
 
-ChainedLogIndex::~ChainedLogIndex() {
-  {
-    std::unique_lock<folly::SharedMutex> lock{allocationMutex_};
-    /*for (uint64_t i = 0; i < numAllocations_; i++) {
-      delete allocations[i];
-    }*/
-  }
-}
+ChainedLogIndex::~ChainedLogIndex() {}
 
 ChainedLogIndexEntry* ChainedLogIndex::findEntryNoLock(uint16_t offset) {
+  /*if (offset >= maxSlotUsed_) {
+    return nullptr;
+  }*/
   uint16_t arrayOffset = offset % allocationSize_;
   uint16_t vectorOffset = offset / allocationSize_;
   if (vectorOffset > numAllocations_) {
@@ -215,14 +211,12 @@ ChainedLogIndex::BucketIterator ChainedLogIndex::getNext(ChainedLogIndex::Bucket
   {
     std::shared_lock<folly::SharedMutex> lock{getMutex(lib)};
     auto currentHead = findEntry(bi.nextEntry_);
-    while (currentHead) {
-      if (currentHead->isValid()) {
-        return BucketIterator(bi.bucket_, currentHead);
-      }
-      currentHead = findEntry(currentHead->next_);
+    if (currentHead && currentHead->isValid()) {
+      return BucketIterator(bi.bucket_, currentHead);
+    } else {
+      return BucketIterator();
     }
   }
-  return BucketIterator();
 }
 
 PartitionOffset ChainedLogIndex::find(KangarooBucketId bid, uint64_t tag) {
