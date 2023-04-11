@@ -201,7 +201,7 @@ void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush) {
         sizeDist_.addSize(oi->key.key().size() + oi->value.size());
         insertCount++;
       } else {
-        XLOGF(INFO, "Readmitting {}", kbid.index());
+        //XLOGF(INFO, "Readmitting {}", kbid.index());
         fwLog_->readmit(oi);
         readmitInsertCount_.inc();
       }
@@ -536,6 +536,14 @@ bool Kangaroo::couldExist(HashedKey hk) {
   if (!canExist) {
     lookupCount_.inc();
   }
+  
+  if (lookupCount_.get() % 50000 == 0) {
+    XLOGF(INFO, "Lookup count succ {} of {}, set hits {} log hits {}, io error count {}", 
+        succLookupCount_.get(), lookupCount_.get(), 
+        setHits_.get(), logHits_.get(),
+        ioErrorCount_.get());
+  }
+
   return canExist;
 }
 
@@ -612,8 +620,12 @@ bool Kangaroo::shouldLogFlush() {
 	return fwLog_->shouldClean(flushingThreshold_);
 }
 
-bool Kangaroo::shouldGC() {
-	return wrenDevice_->shouldClean(gcThreshold_);
+bool Kangaroo::shouldUpperGC() {
+	return wrenDevice_->shouldClean(gcUpperThreshold_);
+}
+
+bool Kangaroo::shouldLowerGC() {
+	return wrenDevice_->shouldClean(gcLowerThreshold_);
 }
 
 void Kangaroo::performLogFlush() {
@@ -664,7 +676,7 @@ void Kangaroo::performGC() {
 				break;
 			}
 		}
-    XLOGF(INFO, "Moving kbid {}", kbid.index());
+    //XLOGF(INFO, "Moving kbid {}", kbid.index());
 		moveBucket(kbid, false);
 	}
 
@@ -678,37 +690,39 @@ void Kangaroo::performGC() {
 	}
 }
 
+void Kangaroo::gcSetupTeardown() {
+  euIterator_ = wrenDevice_->getEuIterator();
+  XLOG(INFO) << "Starting GC";
+  performingGC_ = true;
+  cleaningSyncCond_.notify_all();
+  performGC();
+
+  {
+    std::unique_lock<std::mutex> lock{cleaningSync_};
+    while (cleaningSyncThreads_ != 0) {
+      cleaningSyncCond_.wait(lock);
+    }
+  }
+  wrenDevice_->erase();
+}
+
 void Kangaroo::cleanSegmentsLoop() {
-  XLOG(INFO) << "Starting cleanSegmentsLooop";
+  //XLOG(INFO) << "Starting cleanSegmentsLooop";
   while (true) {
     if (killThread_) {
       break;
     }
 
-    if (shouldGC()) {
-      XLOG(INFO) << "Starting GC";
-      // TODO: update locking mechanism
-			euIterator_ = wrenDevice_->getEuIterator();
-			performingGC_ = true;
-			cleaningSyncCond_.notify_all();
-      performGC();
-
-			{
-				std::unique_lock<std::mutex> lock{cleaningSync_};
-				while (cleaningSyncThreads_ != 0) {
-					cleaningSyncCond_.wait(lock);
-				}
-			}
-			wrenDevice_->erase();
-
+    if (shouldLowerGC()) {
+      gcSetupTeardown();
     } else if (shouldLogFlush()) {
-      XLOG(INFO) << "Starting Log Flush";
+      //XLOG(INFO) << "Starting Log Flush";
 			// TODO: update locking mechanism
 			fwLog_->startClean();
 			performingLogFlush_ = true;
 			cleaningSyncCond_.notify_all();
 
-      XLOG(INFO) << "After notify_all";
+      //XLOG(INFO) << "After notify_all";
       performLogFlush();
 
 			{
@@ -718,7 +732,9 @@ void Kangaroo::cleanSegmentsLoop() {
 				}
 			}
 			fwLog_->finishClean();
-    } 
+    } else if (shouldUpperGC()) {
+      gcSetupTeardown();
+    }
   }
 	cleaningSyncCond_.notify_all();
   exit(0);

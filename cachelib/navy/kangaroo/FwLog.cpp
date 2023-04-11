@@ -28,12 +28,16 @@ Buffer FwLog::readLogSegment(LogSegmentId lsid) {
   auto buffer = device_.makeIOBuffer(segmentSize_);
   XDCHECK(!buffer.isNull());
 
+  uint64_t offset = getLogSegmentOffset(lsid);
   const bool res = 
-    device_.read(getLogSegmentOffset(lsid), buffer.size(), buffer.data());
+    device_.read(offset, buffer.size(), buffer.data());
 
   if (!res) {
+    XLOG(INFO, "Read log segment failed");
     return {};
   }
+  //XLOGF(INFO, "Read: reading zone {} offset {}, actual zone # {}, loc {}", 
+  //    lsid.zone(), lsid.offset(), offset / device_.getIOZoneSize(), offset);
   // TODO: checksumming & generations
   return buffer;
 }
@@ -46,12 +50,16 @@ bool FwLog::writeLogSegment(LogSegmentId lsid, Buffer buffer) {
     device_.reset(offset, device_.getIOZoneSize());
   }
   logSegmentsWrittenCount_.inc();
-  XLOGF(INFO, "Write: writing to zone {} offset {}, actual zone # {}", 
-      lsid.zone(), lsid.offset(), offset / device_.getIOZoneSize());
+  XLOGF(INFO, "Write: writing to zone {} offset {}, actual zone # {}, loc {}", 
+      lsid.zone(), lsid.offset(), offset / device_.getIOZoneSize(), offset);
   bool ret =  device_.write(getLogSegmentOffset(lsid), std::move(buffer));
+  if (!ret) {
+    XLOGF(INFO, "FwLog Write Failed: writing to zone {} offset {}, actual zone # {}, loc {}", 
+        lsid.zone(), lsid.offset(), offset / device_.getIOZoneSize(), offset);
+  }
   if (getNextLsid(lsid).offset() == 0) {
     uint64_t zone_offset = getLogSegmentOffset(LogSegmentId(0, lsid.zone()));
-    XLOGF(INFO, "Write: finishing zone {}", zone_offset / (double) device_.getIOZoneSize());
+    //XLOGF(INFO, "Write: finishing zone {}", zone_offset / (double) device_.getIOZoneSize());
     device_.finish(offset, device_.getIOZoneSize());
   }
 
@@ -66,18 +74,16 @@ bool FwLog::eraseSegments(LogSegmentId startLsid) {
 bool FwLog::flushLogSegment(uint32_t partition, bool wait) {
   //XLOGF(INFO, "Flushing Log Segment because of partition {}", partition);
 	if (!bufferMetadataMutex_.try_lock()) {
-		if (wait) {
-			flushLogCv_.wait(bufferMetadataMutex_);
-			return true;
-		} else {
-			return false;
-		}
+    if (wait) {
+      sleep(.001);
+    }
+		return false;
 	} else {
 		uint32_t oldOffset = bufferedSegmentOffset_;
 		uint32_t updatedOffset = (bufferedSegmentOffset_ + 1) % numBufferedLogSegments_;
 
 		{
-			std::unique_lock<folly::SharedMutex> nextLock{logSegmentMutexs_[updatedOffset]};
+			std::shared_lock<folly::SharedMutex> nextLock{logSegmentMutexs_[updatedOffset]};
 			if (currentLogSegments_[updatedOffset]->getFullness(partition) < overflowLimit_) {
 				bufferMetadataMutex_.unlock();
         flushLogCv_.notify_all();
@@ -87,7 +93,7 @@ bool FwLog::flushLogSegment(uint32_t partition, bool wait) {
     
 		LogSegmentId oldLsid = currentLogSegments_[oldOffset]->getLogSegmentId();
     {
-			std::shared_lock<folly::SharedMutex> lock{cleaningMutex_};
+			std::unique_lock<folly::SharedMutex> lock{cleaningMutex_};
       while (oldLsid.zone() == nextLsidToClean_.zone() && flushLogOnce_) {
         XLOGF(INFO, "waiting for cleaning {}, bufferedSegmentOffset {}", oldLsid.zone(), bufferedSegmentOffset_);
         cleaningCv_.wait(lock);
@@ -121,11 +127,11 @@ bool FwLog::flushLogSegment(uint32_t partition, bool wait) {
     if (nextLsid.zone() == numLogZones_ - numBufferedLogSegments_) {
       flushLogOnce_ = true;
     }
-
 	
-		bufferMetadataMutex_.unlock();
-    flushLogCv_.notify_all();
 	}
+
+  bufferMetadataMutex_.unlock();
+  flushLogCv_.notify_all();
 
   return true;
 }
@@ -254,6 +260,7 @@ FwLog::FwLog(Config&& config, ValidConfigTag)
       index_{new ChainedLogIndex*[logIndexPartitions_]},
       numLogZones_{logSize_ / device_.getIOZoneCapSize()},
       numSegmentsPerZone_{numSegments_ / numLogZones_},
+      pagesPerZone_{numSegmentsPerZone_ * pagesPerSegment_},
       logPhysicalPartitions_{config.logPhysicalPartitions},
       physicalPartitionSize_{logSize_ / logPhysicalPartitions_},
       pagesPerPartitionSegment_{pagesPerSegment_ / logPhysicalPartitions_},
@@ -288,8 +295,8 @@ bool FwLog::shouldClean(double cleaningThreshold) {
 	}
 
   auto nextLsid = getNextLsid(currentLsid);
-	uint64_t nextWriteLoc = nextLsid.offset() + nextLsid.zone() * flushGranularity_;
-	uint64_t nextCleaningLoc = nextLsidToClean_.offset() + nextLsidToClean_.zone() * flushGranularity_;
+	uint64_t nextWriteLoc = nextLsid.offset() + nextLsid.zone() * numSegmentsPerZone_;
+	uint64_t nextCleaningLoc = nextLsidToClean_.offset() + nextLsidToClean_.zone() * numSegmentsPerZone_;
   uint64_t freeSegments = 0;
   if (nextCleaningLoc >= nextWriteLoc) {
     freeSegments = nextCleaningLoc - nextWriteLoc;
@@ -397,28 +404,39 @@ void FwLog::startClean() {
 	cleaningSegment_ = std::make_unique<FwLogSegment>(segmentSize_, pageSize_, 
 			nextLsidToClean_, logPhysicalPartitions_, cleaningBuffer_.mutableView(), false);
   cleaningSegmentIt_ = cleaningSegment_->getFirst();
+  /*XLOGF(INFO, "Starting to clean {}.{}, cleaning segment iterator done? {}",
+      cleaningSegment_->getLogSegmentId().zone(), 
+      cleaningSegment_->getLogSegmentId().offset(),
+      cleaningSegmentIt_->done());*/
 }
 
 void FwLog::finishClean() {
   {
-    std::shared_lock<folly::SharedMutex> lock{cleaningMutex_};
+    std::unique_lock<folly::SharedMutex> lock{cleaningMutex_};
     nextLsidToClean_ = getNextLsid(nextLsidToClean_);
     cleaningCv_.notify_all();
   }
 	flushLogSegmentsCount_.inc();
 	delete cleaningSegmentIt_;
 	cleaningSegment_ = nullptr;
+  
+  flushLogCv_.notify_all();
 
-  XLOG(INFO) << "FwLog finish clean";
+  //XLOG(INFO) << "FwLog finish clean";
 }
 
 bool FwLog::cleaningDone() {
 	while (!cleaningSegmentIt_->done()) {
 		uint64_t indexPartition = getIndexPartition(cleaningSegmentIt_->key());
 		uint32_t hits = 0;
-		LogPageId lpid = getLogPageId(
-				index_[indexPartition]->lookup(cleaningSegmentIt_->key(), false, &hits), 
+    auto po = index_[indexPartition]->lookup(cleaningSegmentIt_->key(), false, &hits);
+		LogPageId lpid = getLogPageId(po,
 				cleaningSegmentIt_->partition());
+    /*if (lpid.isValid()) {
+      XLOGF(INFO, "Lpid {}, segment {}.{} cleaning segment {}.{}, po {} partition {}", lpid.index(), 
+          getSegmentId(lpid).zone(), getSegmentId(lpid).offset(),
+          nextLsidToClean_.zone(), nextLsidToClean_.offset(), po.index(), cleaningSegmentIt_->partition());
+    }*/
 		if (!lpid.isValid() || nextLsidToClean_ != getSegmentId(lpid)) {
 			if (lpid.isValid()) {
 					indexSegmentMismatch_.inc();
@@ -430,8 +448,10 @@ bool FwLog::cleaningDone() {
 			return false;
 		}
 	}
-  XLOGF(INFO, "Cleaning done for zone {} offset {}", 
-      cleaningSegment_->getLogSegmentId().zone(), cleaningSegment_->getLogSegmentId().offset());
+  if (cleaningSegment_->getLogSegmentId().offset() == 0) {
+    XLOGF(INFO, "Cleaning done for zone {} offset {}", 
+        cleaningSegment_->getLogSegmentId().zone(), cleaningSegment_->getLogSegmentId().offset());
+  }
 	return true;
 }
 
@@ -516,55 +536,59 @@ bool FwLog::couldExist(HashedKey hk) {
 Status FwLog::insert(HashedKey hk,
               BufferView value) {
   // TODO: update for fw log
+  //
   LogPageId lpid;
   LogSegmentId lsid;
   uint64_t physicalPartition = getPhysicalPartition(hk);
+  Status ret;
 	
-	uint32_t buffer = numBufferedLogSegments_ + 1;
-	bool flushSegment = false;
-	for (uint32_t i = 0; i < numBufferedLogSegments_; i++) {
-    // logSegment handles concurrent inserts
-    // lock to prevent write out of segment
-		uint32_t bufferNum = (i + bufferedSegmentOffset_) % numBufferedLogSegments_;
-    std::shared_lock<folly::SharedMutex> lock{logSegmentMutexs_[bufferNum]};
+  while (!lpid.isValid()) {
+    uint32_t buffer = numBufferedLogSegments_ + 1;
+    bool flushSegment = false;
+    for (uint32_t i = 0; i < numBufferedLogSegments_; i++) {
+      // logSegment handles concurrent inserts
+      // lock to prevent write out of segment
+      uint32_t bufferNum = (i + bufferedSegmentOffset_) % numBufferedLogSegments_;
+      std::shared_lock<folly::SharedMutex> lock{logSegmentMutexs_[bufferNum]};
 
-    lpid = getLogPageId(
-        currentLogSegments_[bufferNum]->getLogSegmentId(),
-        currentLogSegments_[bufferNum]->insert(hk, value, physicalPartition));
+      lpid = getLogPageId(
+          currentLogSegments_[bufferNum]->getLogSegmentId(),
+          currentLogSegments_[bufferNum]->insert(hk, value, physicalPartition));
+      if (lpid.isValid()) {
+        buffer = bufferNum;
+        break;
+      } 
+    }
+
     if (lpid.isValid()) {
-			buffer = bufferNum;
-			break;
-    } 
-  }
-
-	Status ret;
-  if (lpid.isValid()) {
-    uint64_t indexPartition = getIndexPartition(hk);
-    auto ret = index_[indexPartition]->insert(hk, getPartitionOffset(lpid));
-    if (ret == Status::NotFound) {
-      replaceIndexInsert_.inc();
-      ret = Status::Ok;
-    } 
-    insertCount_.inc();
-    if (ret == Status::Ok) {
-      succInsertCount_.inc();
-      bytesInserted_.add(hk.key().size() + value.size());
+      uint64_t indexPartition = getIndexPartition(hk);
+      auto ret = index_[indexPartition]->insert(hk, getPartitionOffset(lpid));
+      if (ret == Status::NotFound) {
+        replaceIndexInsert_.inc();
+        ret = Status::Ok;
+      } 
+      insertCount_.inc();
+      if (ret == Status::Ok) {
+        succInsertCount_.inc();
+        bytesInserted_.add(hk.key().size() + value.size());
+      }
+    }
+    
+    if (buffer != bufferedSegmentOffset_) {
+      // only wait if could not allocate lpid
+      flushLogSegment(physicalPartition, !lpid.isValid());
     }
   }
-	
-	bool flushSuccess;
-	if (buffer != bufferedSegmentOffset_) {
-		// only wait if could not allocate lpid
-		flushSuccess = flushLogSegment(physicalPartition, !lpid.isValid());
-	}
-
+  return ret;
+  /*
 	if (lpid.isValid()) {
 		return ret;
-	} else if (flushSuccess || !lpid.isValid()) { 
+	} else if (!lpid.isValid()) { 
     return insert(hk, value);
   } else {
     return Status::Rejected;
   }
+  */
 }
 
 void FwLog::readmit(HashedKey hk,

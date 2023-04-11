@@ -66,7 +66,7 @@ class Kangaroo final : public Engine {
     uint32_t avgSmallObjectSize{100};
     uint32_t logIndexPartitionsPerPhysical{};
 
-    double setOverprovisioning{.01}; // overprovisioning
+    double setOverprovisioning{.5}; // overprovisioning
     uint64_t numBuckets() const { return (1 - setOverprovisioning) * totalSetSize / bucketSize; }
 
     FwLog::Config logConfig;
@@ -172,12 +172,15 @@ class Kangaroo final : public Engine {
   static constexpr double LogIndexOverhead = 2;
 
   // Log flushing and gc code, performed on a separate set of threads
-  double flushingThreshold_ = 0.4;
-  double gcThreshold_ = 0.3;
+  double flushingThreshold_ = 0.3;
+  double gcUpperThreshold_ = 0.3;
+  double gcLowerThreshold_ = 0.1;
   bool shouldLogFlush(); // not parallel
-  bool shouldGC(); // not parallel
+  bool shouldUpperGC(); // not parallel
+  bool shouldLowerGC(); // not parallel
   void performGC();
   void performLogFlush();
+  void gcSetupTeardown();
   void cleanSegmentsLoop();
   void cleanSegmentsWaitLoop();
   std::vector<std::thread> cleaningThreads_;

@@ -33,7 +33,7 @@ class FwLog  {
 
     // for index
     uint64_t logIndexPartitions{4};
-    uint16_t sizeAllocations{1024};
+    uint16_t sizeAllocations{2048};
     uint64_t numTotalIndexBuckets{};
     SetNumberCallback setNumberCallback{};
 
@@ -139,22 +139,29 @@ class FwLog  {
   LogPageId getLogPageId(PartitionOffset po, uint32_t physicalPartition) {
 		uint32_t offset = po.index() % pagesPerPartitionSegment_;
 		uint32_t segment_num = po.index() / pagesPerPartitionSegment_;
-		uint32_t segment_offset = offset + physicalPartition * pagesPerPartitionSegment_;
-    return LogPageId(segment_offset + segment_num * pagesPerSegment_, po.isValid());
+    uint32_t zone_num = segment_num / numSegmentsPerZone_;
+    uint32_t segmentOffset = segment_num % numSegmentsPerZone_;
+    uint64_t index = zone_num * pagesPerZone_ + segmentOffset * pagesPerSegment_ 
+      + offset + physicalPartition * pagesPerPartitionSegment_;
+    return LogPageId(index, po.isValid());
   }
   PartitionOffset getPartitionOffset(LogPageId lpid) {
 		uint32_t segment_offset = (lpid.index() % pagesPerSegment_) % pagesPerPartitionSegment_;
-		uint32_t segment_num = lpid.index() / pagesPerSegment_;
-    return PartitionOffset(segment_num * pagesPerPartitionSegment_ + segment_offset, lpid.isValid());
+		uint32_t zone_num = lpid.index() / pagesPerZone_;
+    uint32_t zone_offset = lpid.index() % pagesPerZone_;
+    uint32_t segment_num = zone_offset / pagesPerSegment_;
+    uint32_t segments = zone_num * numSegmentsPerZone_ + segment_num;
+    return PartitionOffset(segments * pagesPerPartitionSegment_ + segment_offset, lpid.isValid());
   }
   LogSegmentId getSegmentId(LogPageId lpid) {
-    uint32_t offset = lpid.index() / pagesPerSegment_;
-    uint32_t zone = lpid.index() / device_.getIOZoneSize();
-    return LogSegmentId(offset, zone);
+    uint32_t segment_num = lpid.index() / pagesPerSegment_;
+    uint32_t zone = lpid.index() / pagesPerZone_;
+    return LogSegmentId(segment_num % numSegmentsPerZone_, zone);
   }
   LogPageId getLogPageId(LogSegmentId lsid, int32_t pageOffset) {
-    uint32_t lsidOffset = lsid.offset() * pagesPerSegment_ + lsid.zone() * device_.getIOZoneSize();
-    return LogPageId(lsidOffset + pageOffset, pageOffset >= 0);
+    uint64_t zone_page = lsid.zone() * pagesPerZone_;
+    uint64_t segment_offset = lsid.offset() * pagesPerSegment_;
+    return LogPageId(zone_page + segment_offset + pageOffset, pageOffset >= 0);
   }
 
   LogSegmentId getNextLsid(LogSegmentId lsid);
@@ -201,6 +208,7 @@ class FwLog  {
 
   const uint64_t numLogZones_{};
   const uint64_t numSegmentsPerZone_{};
+  const uint64_t pagesPerZone_{};
   const uint64_t logPhysicalPartitions_{};
   const uint64_t physicalPartitionSize_{};
   const uint64_t pagesPerPartitionSegment_{};
