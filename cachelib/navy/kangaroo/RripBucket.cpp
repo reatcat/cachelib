@@ -180,7 +180,7 @@ uint32_t RripBucket::makeSpace(uint32_t size,
 
     if (destructorCb) {
       auto* entry = getIteratorEntry(itr);
-      destructorCb(entry->hashedKey(), entry->value(), DestructorEvent::Recycled);
+      //destructorCb(entry->hashedKey(), entry->value(), DestructorEvent::Recycled);
     }
 
     curFreeSpace += RripBucketStorage::slotSize(itr.view().size());

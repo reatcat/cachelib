@@ -381,7 +381,7 @@ std::vector<std::unique_ptr<ObjectInfo>> FwLog::getObjectsToMove(KangarooBucketI
 void FwLog::readmit(std::unique_ptr<ObjectInfo>& oi) {
 	/* reinsert items attempted to be moved into index unless in segment to flush */
 	moveBucketSuccessfulRets_.inc();
-	if (getSegmentId(oi->lpid) != cleaningSegment_->getLogSegmentId()) {
+	if (cleaningSegment_ && getSegmentId(oi->lpid) != cleaningSegment_->getLogSegmentId()) {
 		uint64_t indexPartition = getIndexPartition(oi->key);
 		KangarooBucketId bid = setNumberCallback_(oi->key.keyHash());
 		index_[indexPartition]->insert(oi->tag, bid, getPartitionOffset(oi->lpid), oi->hits);

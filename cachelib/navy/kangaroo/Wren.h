@@ -17,16 +17,16 @@ class Wren  {
     public: 
       bool done() { return done_; }
       KangarooBucketId getBucket() { return kbid_; }
-			EuIterator() : kbid_{0}, next_kbid_{0}, done_{false} {}
+			EuIterator() : kbid_{0}, done_{true} {}
 
     private:
       friend Wren;
 
-      explicit EuIterator(KangarooBucketId kbid, KangarooBucketId next_kbid): 
-            kbid_{kbid}, next_kbid_{next_kbid} {}
+      explicit EuIterator(KangarooBucketId kbid): 
+            kbid_{kbid} {}
       bool done_ = false;
       KangarooBucketId kbid_;
-      KangarooBucketId next_kbid_; // next bucket in EU
+      int i_ = 0;
   };
 
   // Throw std::invalid_argument on bad config
@@ -68,18 +68,9 @@ class Wren  {
 
   struct EuIdentifier {
     EuId euid_; // location on device
-    KangarooBucketId nextKbid_; // next bucket in zone
 
-    EuIdentifier() : euid_{EuId((uint32_t) -1)}, 
-      nextKbid_{KangarooBucketId((uint32_t) -1)} {}
+    EuIdentifier() : euid_{EuId((uint32_t) -1)} {}
   };
-  struct EuMetadata {
-    KangarooBucketId firstKbid_;
-
-    EuMetadata() : firstKbid_{KangarooBucketId((uint32_t) -1)} {}
-    EuMetadata(KangarooBucketId kbid) : firstKbid_{kbid} {}
-  };
-
   EuId calcEuId(uint32_t erase_unit, uint32_t offset);
   EuId findEuId(KangarooBucketId kbid);
   uint64_t getEuIdLoc(EuId euid);
@@ -87,20 +78,19 @@ class Wren  {
 
   // page to zone and offset mapping
   EuIdentifier* kbidToEuid_;
-  EuMetadata* euMetadata_;
 
   // only implementing FIFO eviction
   folly::SharedMutex writeMutex_;
+  uint64_t euCap_; // actual erase unit usable capacity
+  uint64_t numEus_;
   uint64_t writeEraseUnit_{0};
   uint64_t eraseEraseUnit_{0};
   uint32_t writeOffset_{0};
   uint64_t cleaningThreshold_{2};
-  uint64_t euCap_; // actual erase unit usable capacity
-  uint64_t numEus_;
-  uint64_t euSize_; // max erase unit capacity (how eus are aligned)
   uint64_t numBuckets_;
   uint64_t bucketSize_;
   uint64_t setOffset_;
+  uint64_t bucketsPerEu_;
 };
 } // namespace navy
 } // namespace cachelib
