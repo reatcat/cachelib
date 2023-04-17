@@ -524,6 +524,9 @@ Buffer RegionManager::read(const RegionDescriptor& desc,
   auto rid = addr.rid();
   auto& region = getRegion(rid);
   // Do not expect to read beyond what was already written
+  if (addr.offset() + size > region.getLastEntryEndOffset()) {
+    return Buffer();
+  }
   XDCHECK_LE(addr.offset() + size, region.getLastEntryEndOffset());
   if (!desc.isPhysReadMode()) {
     auto buffer = Buffer(size);
