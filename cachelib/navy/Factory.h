@@ -117,7 +117,8 @@ class KangarooProto {
   // granularity.
   virtual void setLayout(uint64_t baseOffset,
                          uint64_t size,
-                         uint32_t bucketSize) = 0;
+                         uint32_t bucketSize,
+                         uint32_t hotBucketSize) = 0;
 
   // Enable Bloom filter with @numHashes hash functions, each mapped into an
   // bit array of @hashTableBitSize bits.

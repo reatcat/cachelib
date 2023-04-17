@@ -107,6 +107,8 @@ uint64_t setupKangaroo(const navy::KangarooConfig& kangarooConfig,
                       cachelib::navy::CacheProto& proto,
                       ZNSArgs &usesZnsArg) {
   auto bucketSize = kangarooConfig.getBucketSize();
+  // TODO: Remove hardcoding
+  auto hotBucketSize = bucketSize / 2;
   if (bucketSize != alignUp(bucketSize, ioAlignSize)) {
     throw std::invalid_argument(
         folly::sformat("Bucket size: {} is not aligned to ioAlignSize: {}",
@@ -129,7 +131,7 @@ uint64_t setupKangaroo(const navy::KangarooConfig& kangarooConfig,
   }
 
   auto kangaroo = cachelib::navy::createKangarooProto();
-  kangaroo->setLayout(kangarooCacheOffset, kangarooCacheSize, bucketSize);
+  kangaroo->setLayout(kangarooCacheOffset, kangarooCacheSize, bucketSize, hotBucketSize);
 
   // Bucket Bloom filter size, bytes
   //

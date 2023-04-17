@@ -180,10 +180,13 @@ class KangarooProtoImpl final : public KangarooProto {
 
   void setLayout(uint64_t baseOffset,
                  uint64_t size,
-                 uint32_t bucketSize) override {
+                 uint32_t bucketSize,
+                 uint32_t hotBucketSize) override {
     config_.cacheBaseOffset = baseOffset;
     config_.totalSetSize = size;
     config_.bucketSize = bucketSize;
+    config_.hotSetSize = size * hotBucketSize / bucketSize;
+    config_.hotBucketSize = hotBucketSize;
   }
 
   void setBloomFilter(uint32_t numHashes, uint32_t hashTableBitSize) override {
@@ -203,6 +206,8 @@ class KangarooProtoImpl final : public KangarooProto {
     config_.logConfig.logSize = logSize;
     XLOGF(INFO, "setLog logSize {} kangaroo size {}", logSize, config_.totalSetSize);
     config_.totalSetSize = config_.totalSetSize - logSize;
+    config_.hotSetSize = config_.totalSetSize * config_.hotBucketSize / config_.bucketSize;
+
     config_.logConfig.logBaseOffset = logBaseOffset;
     config_.logConfig.threshold = threshold;
     config_.logIndexPartitionsPerPhysical = indexPartitionsPerPhysical;
