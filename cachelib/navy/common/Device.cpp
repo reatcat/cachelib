@@ -465,7 +465,7 @@ std::unique_ptr<Device> createDirectIoZNSDevice(
     uint64_t ioZoneCapSize, actDevSize;
      int count;
 
-     int HACK = 25165824; // TODO: remove;
+     //int HACK = 12582912; // TODO: remove;
 
     info = new zbd_info();
     fd = zbd_open(fileName.c_str(), flags, info);
@@ -480,15 +480,19 @@ std::unique_ptr<Device> createDirectIoZNSDevice(
            XLOG(ERR) << "report zone " << nr_zones;
     }
 
-    for (count =0, actDevSize = 0; count < nr_zones; count++)
-        actDevSize += HACK; // += report[count].capacity;
+    for (count =0, actDevSize = 0; count < nr_zones; count++) {
+        //actDevSize += HACK; // += report[count].capacity;
+        actDevSize += report[count].capacity;
+		}
 
     /* minimum zone capacity */
     /* TODO: Done for region size,
     we should be able to map each region to different size */
     for (count =0, ioZoneCapSize = 0; count < nr_zones; count++) {
-      if (!ioZoneCapSize || ioZoneCapSize > HACK) { // (report[count].capacity / HACK)) {
-        ioZoneCapSize = HACK; //report[count].capacity;
+      //if (!ioZoneCapSize || ioZoneCapSize > HACK) { // (report[count].capacity / HACK)) {
+      if (!ioZoneCapSize || ioZoneCapSize >  (report[count].capacity)) {
+        //ioZoneCapSize = HACK; //report[count].capacity;
+        ioZoneCapSize = report[count].capacity;
       }
     }
 
