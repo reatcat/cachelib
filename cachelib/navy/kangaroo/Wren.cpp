@@ -68,16 +68,26 @@ uint64_t Wren::getEuIdLoc(EuId euid) {
     + zone * device_.getIOZoneSize();
 }
 
-Buffer Wren::read(KangarooBucketId kbid) {
+Buffer Wren::read(KangarooBucketId kbid, bool& newBuffer) {
   EuId euid = findEuId(kbid);
   if (euid.index() >= numEus_ * euCap_) {
     // kbid has not yet been defined
+    /*if (kbid.index() % 20000 == 10) {
+      XLOGF(INFO, "Reading bucket {} does not exist", 
+          kbid.index());
+    }*/
+    newBuffer = true;
     return device_.makeIOBuffer(bucketSize_);
   }
   uint64_t loc = getEuIdLoc(euid);
 
+  /*if (kbid.index() % 20000 == 10) {
+    XLOGF(INFO, "Reading bucket {} in euid zone {} offset {}, loc {}", 
+        kbid.index(), euid.index() / bucketsPerEu_, euid.index() % bucketsPerEu_, loc);
+  }*/
   auto buffer = device_.makeIOBuffer(bucketSize_);
   XDCHECK(!buffer.isNull());
+  newBuffer = false;
 
   const bool res = device_.read(loc, buffer.size(), buffer.data());
   if (!res) {
@@ -92,15 +102,15 @@ bool Wren::write(KangarooBucketId kbid, Buffer buffer) {
     // TODO: deserialize
     std::unique_lock<folly::SharedMutex> lock{writeMutex_};
     if (writeEraseUnit_ == eraseEraseUnit_) {
-        XLOG(INFO, "WREN Writing caught up to erasing");
+        XLOG(INFO, "**************WREN Writing caught up to erasing**************");
         exit(1);
         return false;
     }
   
     if (writeOffset_ == 0) {
-      XLOGF(INFO, "WREN Write: reseting zone {}, {} / {}", 
+      /*XLOGF(INFO, "WREN Write: reseting zone {}, {} / {}", 
           getEuIdLoc(writeEraseUnit_, 0)/device_.getIOZoneSize(),
-          writeEraseUnit_, numEus_);
+          writeEraseUnit_, numEus_);*/
       device_.reset(getEuIdLoc(writeEraseUnit_, 0), device_.getIOZoneSize());
     }
 
@@ -111,25 +121,33 @@ bool Wren::write(KangarooBucketId kbid, Buffer buffer) {
     //    kbid.index(), loc / device_.getIOZoneSize(), 
     //    (loc % device_.getIOZoneSize()) / bucketSize_, loc);
     XDCHECK(euid.index() < numEus_ * euCap_);
-    kbidToEuid_[kbid.index()].euid_ = euid;
 
     bool ret = device_.write(loc, std::move(buffer));
     if (!ret) {
       XLOGF(INFO, "tried to write at {} euid, {}.{} calculated zone + offset, write zone {}, loc {}", 
           euid.index(), euid.index() / (euCap_/ bucketSize_), euid.index() % (euCap_/bucketSize_),
           writeEraseUnit_, loc);
+      kbidToEuid_[kbid.index()].euid_ = EuId(-1); // fail bucket write
+      writeOffset_ = euCap_/bucketSize_; // allow zone to reset for next write
+    } else {
+      kbidToEuid_[kbid.index()].euid_ = euid;
+      writeOffset_++;
     }
     
-    writeOffset_++;
     if (writeOffset_ >= euCap_/bucketSize_) {
       device_.finish(getEuIdLoc(writeEraseUnit_, 0), device_.getIOZoneSize());
       //XLOGF(INFO, "WREN Write: finishing zone {} old eu {} / {}", 
       //    getEuIdLoc(writeEraseUnit_, 0)/device_.getIOZoneSize(), writeEraseUnit_, numEus_);
       writeEraseUnit_ = (writeEraseUnit_ + 1) % numEus_;
-      XLOGF(INFO, "WREN Write: new zone {} new eu {} / {}", 
-          getEuIdLoc(writeEraseUnit_, 0)/device_.getIOZoneSize(), writeEraseUnit_, numEus_);
+      XLOGF(INFO, "WREN Write: new zone {} new eu {} / {}, erase at {}", 
+          getEuIdLoc(writeEraseUnit_, 0)/device_.getIOZoneSize(), writeEraseUnit_, numEus_, eraseEraseUnit_);
       writeOffset_ = 0;
     }
+
+    /*if (kbid.index() % 20000 == 10) {
+      XLOGF(INFO, "Writing bucket {} in euid zone {} offset {}, loc {}", 
+          kbid.index(), euid.index() / bucketsPerEu_, euid.index() % bucketsPerEu_, loc);
+    }*/
 
     return ret;
 

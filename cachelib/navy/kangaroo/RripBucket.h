@@ -38,8 +38,10 @@ class FOLLY_PACK_ATTR RripBucket {
     bool done() const { return itr_.done(); }
 
     BufferView key() const;
+    HashedKey hashedKey() const;
     uint64_t keyHash() const;
     BufferView value() const;
+    uint8_t rrip() const;
 
     bool keyEqualsTo(HashedKey hk) const;
     bool keyEqualsTo(uint64_t keyHash) const;
@@ -99,7 +101,17 @@ class FOLLY_PACK_ATTR RripBucket {
   
   // Checks if there is space for an object given its hit priority
   // Use 0 hits if there is no log
+  // ties go to new entries
   bool isSpace(HashedKey hk, BufferView value, uint8_t hits);
+  
+  // Checks if there is space for an object by removing lower
+  // priority objects, ties go to old entries
+  bool isSpaceRrip(HashedKey hk, BufferView value, uint8_t rrip_value);
+  uint32_t makeSpace(HashedKey hk, BufferView value, const RedivideCallback& redivideCb);
+  uint32_t insertRrip(HashedKey hk,
+                  BufferView value,
+                  uint8_t rrip,
+                  const DestructorCallback& destructorCb);
 
  private:
   RripBucket(uint64_t generationTime, uint32_t capacity)

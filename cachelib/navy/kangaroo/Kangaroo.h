@@ -45,11 +45,14 @@ class Kangaroo final : public Engine {
  public:
   struct Config {
     uint32_t bucketSize{4 * 1024};
+    uint32_t hotBucketSize{0};
 
     // The range of device that Kangaroo will access is guaranted to be
     // with in [baseOffset, baseOffset + cacheSize)
+    bool hotColdSep{true};
     uint64_t cacheBaseOffset{};
     uint64_t totalSetSize{};
+    uint64_t hotSetSize{};
     Device* device{nullptr};
 
     DestructorCallback destructorCb;
@@ -68,6 +71,11 @@ class Kangaroo final : public Engine {
 
     double setOverprovisioning{.5}; // overprovisioning
     uint64_t numBuckets() const { return (1 - setOverprovisioning) * totalSetSize / bucketSize; }
+    uint64_t hotBaseOffset() const { 
+      uint64_t totalZones = totalSetSize / device->getIOZoneCapSize();
+      uint64_t hotZones = totalZones * hotBucketSize / bucketSize;
+      return cacheBaseOffset + (totalZones - hotZones) * device->getIOZoneSize(); 
+    };
 
     FwLog::Config logConfig;
 
@@ -124,8 +132,8 @@ class Kangaroo final : public Engine {
   struct ValidConfigTag {};
   Kangaroo(Config&& config, ValidConfigTag);
 
-  Buffer readBucket(KangarooBucketId bid);
-  bool writeBucket(KangarooBucketId bid, Buffer buffer);
+  Buffer readBucket(KangarooBucketId bid, bool hot);
+  bool writeBucket(KangarooBucketId bid, Buffer buffer, bool hot);
 
 
   // The corresponding r/w bucket lock must be held during the entire
@@ -154,12 +162,14 @@ class Kangaroo final : public Engine {
 
   double bfFalsePositivePct() const;
   void bfRebuild(KangarooBucketId bid, const RripBucket* bucket);
+  void bfBuild(KangarooBucketId bid, const RripBucket* bucket); // doesn't clear bf
   bool bfReject(KangarooBucketId bid, uint64_t keyHash) const;
 
   bool bvGetHit(KangarooBucketId bid, uint32_t keyIdx) const;
   void bvSetHit(KangarooBucketId bid, uint32_t keyIdx) const;
 
-  void moveBucket(KangarooBucketId bid, bool logFlush);
+  void moveBucket(KangarooBucketId bid, bool logFlush, int gcMode); // gcMode 0 = log flush, 1 = cold, 2 = hot
+  void redivideBucket(RripBucket* hotBucket, RripBucket* coldBucket);
 
   // Use birthday paradox to estimate number of mutexes given number of parallel
   // queries and desired probability of lock collision.
@@ -173,14 +183,14 @@ class Kangaroo final : public Engine {
 
   // Log flushing and gc code, performed on a separate set of threads
   double flushingThreshold_ = 0.3;
-  double gcUpperThreshold_ = 0.3;
-  double gcLowerThreshold_ = 0.1;
+  double gcUpperThreshold_ = 0.4;
+  double gcLowerThreshold_ = 0.2;
   bool shouldLogFlush(); // not parallel
-  bool shouldUpperGC(); // not parallel
-  bool shouldLowerGC(); // not parallel
+  bool shouldUpperGC(bool hot); // not parallel
+  bool shouldLowerGC(bool hot); // not parallel
   void performGC();
   void performLogFlush();
-  void gcSetupTeardown();
+  void gcSetupTeardown(bool hot);
   void cleanSegmentsLoop();
   void cleanSegmentsWaitLoop();
   std::vector<std::thread> cleaningThreads_;
@@ -190,13 +200,17 @@ class Kangaroo final : public Engine {
   uint64_t cleaningSyncThreads_ = 0;
   std::condition_variable cleaningSyncCond_;
   bool performingLogFlush_ = false;
-  bool performingGC_ = false;
+  int performingGC_ = 0; // 0 = fine, 1 = cold sets, 2 = hot sets
   Wren::EuIterator euIterator_;
   bool killThread_ = false;
+  bool enableHot_ = true;
+  float hotRebuildFreq_ = 2;
 
   const DestructorCallback destructorCb_{};
   const uint64_t bucketSize_{};
+  const uint64_t hotBucketSize_{};
   const uint64_t cacheBaseOffset_{};
+  const uint64_t hotCacheBaseOffset_{};
   const uint64_t numBuckets_{};
   std::unique_ptr<BloomFilter> bloomFilter_;
   std::unique_ptr<RripBitVector> bitVector_;
@@ -205,6 +219,7 @@ class Kangaroo final : public Engine {
   std::chrono::nanoseconds generationTime_{};
   Device& device_;
   std::unique_ptr<Wren> wrenDevice_{nullptr};
+  std::unique_ptr<Wren> wrenHotDevice_{nullptr};
   std::unique_ptr<folly::SharedMutex[]> mutex_{
       new folly::SharedMutex[kNumMutexes]};
 

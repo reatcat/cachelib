@@ -116,6 +116,9 @@ struct ObjectInfo {
 };
 using ReadmitCallback = std::function<void(std::unique_ptr<ObjectInfo>&)>;
 using SetMultiInsertCallback = std::function<void(std::vector<std::unique_ptr<ObjectInfo>>&, ReadmitCallback)>;
+// @key and @value are valid only during this callback invocation
+using RedivideCallback =
+    std::function<void(HashedKey hk, BufferView value, uint8_t rrip)>;
   
 static const uint32_t maxTagValue = 1 << 9;
 static const int tagSeed = 23;

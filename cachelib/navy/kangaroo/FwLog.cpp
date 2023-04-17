@@ -50,8 +50,8 @@ bool FwLog::writeLogSegment(LogSegmentId lsid, Buffer buffer) {
     device_.reset(offset, device_.getIOZoneSize());
   }
   logSegmentsWrittenCount_.inc();
-  XLOGF(INFO, "Write: writing to zone {} offset {}, actual zone # {}, loc {}", 
-      lsid.zone(), lsid.offset(), offset / device_.getIOZoneSize(), offset);
+  //XLOGF(INFO, "Write: writing to zone {} offset {}, actual zone # {}, loc {}", 
+  //    lsid.zone(), lsid.offset(), offset / device_.getIOZoneSize(), offset);
   bool ret =  device_.write(getLogSegmentOffset(lsid), std::move(buffer));
   if (!ret) {
     XLOGF(INFO, "FwLog Write Failed: writing to zone {} offset {}, actual zone # {}, loc {}", 
@@ -361,6 +361,10 @@ std::vector<std::unique_ptr<ObjectInfo>> FwLog::getObjectsToMove(KangarooBucketI
     }
     index_[indexPartition]->remove(tag, bid, getPartitionOffset(lpid));
     auto ptr = std::make_unique<ObjectInfo>(key, value, hits, lpid, tag);
+    /*if (ptr->key.keyHash() % 1000 == 5) {
+      XLOGF(INFO, "Found item: value null: {} key: {}", value.isNull(), key.keyHash());
+      XLOGF(INFO, "Copied item: value null: {} key: {}", ptr->value.isNull(), ptr->key.keyHash());
+    }*/
     objects.push_back(std::move(ptr));
   }
   //XLOGF(INFO, "finished finding objects {}", bid.index());
@@ -448,10 +452,10 @@ bool FwLog::cleaningDone() {
 			return false;
 		}
 	}
-  if (cleaningSegment_->getLogSegmentId().offset() == 0) {
+  /*if (cleaningSegment_->getLogSegmentId().offset() == 0) {
     XLOGF(INFO, "Cleaning done for zone {} offset {}", 
         cleaningSegment_->getLogSegmentId().zone(), cleaningSegment_->getLogSegmentId().offset());
-  }
+  }*/
 	return true;
 }
 

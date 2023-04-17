@@ -67,8 +67,16 @@ BufferView RripBucket::Iterator::key() const {
   return getIteratorEntry(itr_)->key();
 }
 
+uint8_t RripBucket::Iterator::rrip() const {
+  return itr_.rrip();
+}
+
 uint64_t RripBucket::Iterator::keyHash() const {
   return getIteratorEntry(itr_)->keyHash();
+}
+
+HashedKey RripBucket::Iterator::hashedKey() const {
+  return getIteratorEntry(itr_)->hashedKey();
 }
 
 BufferView RripBucket::Iterator::value() const {
@@ -111,21 +119,6 @@ BufferView RripBucket::find(HashedKey hk, BitVectorUpdateVisitor addHitCallback)
   return {};
 }
 
-/*Status RripBucket::findKey(uint64_t keyHash, HashedKey& hk) const {
-  auto itr = storage_.getFirst();
-  uint32_t keyIdx = 0;
-  while (!itr.done()) {
-    auto* entry = getIteratorEntry(itr);
-    if (entry->keyEqualsTo(keyHash)) {
-      hk = HashedKey(entry->key());
-      return Status::Ok;
-    }
-    itr = storage_.getNext(itr);
-    keyIdx++;
-  }
-  return Status.NotFound;
-}*/
-
 uint32_t RripBucket::insert(HashedKey hk,
                         BufferView value,
                         uint8_t hits,
@@ -135,6 +128,21 @@ uint32_t RripBucket::insert(HashedKey hk,
 
   const auto evictions = makeSpace(size, destructorCb);
   uint8_t rrip = getRripValue(hits);
+  auto alloc = storage_.allocate(size, rrip);
+  XDCHECK(!alloc.done());
+  RripBucketEntry::create(alloc.view(), hk, value);
+
+  return evictions;
+}
+
+uint32_t RripBucket::insertRrip(HashedKey hk,
+                        BufferView value,
+                        uint8_t rrip,
+                        const DestructorCallback& destructorCb) {
+  const auto size = RripBucketEntry::computeSize(hk.key().size(), value.size());
+  XDCHECK_LE(size, storage_.capacity());
+
+  const auto evictions = makeSpace(size, destructorCb);
   auto alloc = storage_.allocate(size, rrip);
   XDCHECK(!alloc.done());
   RripBucketEntry::create(alloc.view(), hk, value);
@@ -163,6 +171,26 @@ bool RripBucket::isSpace(HashedKey hk, BufferView value, uint8_t hits) {
   return (curFreeSpace >= requiredSize);
 }
 
+bool RripBucket::isSpaceRrip(HashedKey hk, BufferView value, uint8_t rrip) {
+  const auto size = RripBucketEntry::computeSize(hk.key().size(), value.size());
+  const auto requiredSize = RripBucketStorage::slotSize(size);
+  XDCHECK_LE(requiredSize, storage_.capacity());
+
+  auto curFreeSpace = storage_.remainingCapacity();
+
+  auto itr = storage_.getFirst();
+  while (curFreeSpace < requiredSize) {
+    if (itr.done()) {
+      return false;
+    } else if (itr.rrip() <= rrip) {
+      return false;
+    }
+    curFreeSpace += RripBucketStorage::slotSize(itr.view().size());
+    itr = storage_.getNext(itr);
+  }
+  return (curFreeSpace >= requiredSize);
+}
+
 uint32_t RripBucket::makeSpace(uint32_t size,
                            const DestructorCallback& destructorCb) {
   const auto requiredSize = RripBucketStorage::slotSize(size);
@@ -182,6 +210,36 @@ uint32_t RripBucket::makeSpace(uint32_t size,
       auto* entry = getIteratorEntry(itr);
       //destructorCb(entry->hashedKey(), entry->value(), DestructorEvent::Recycled);
     }
+
+    curFreeSpace += RripBucketStorage::slotSize(itr.view().size());
+    if (curFreeSpace >= requiredSize) {
+      storage_.removeUntil(itr);
+      break;
+    }
+    itr = storage_.getNext(itr);
+    XDCHECK(!itr.done());
+  }
+  return evictions;
+}
+
+uint32_t RripBucket::makeSpace(HashedKey hk, BufferView value,
+                           const RedivideCallback& redivideCb) {
+  const auto size = RripBucketEntry::computeSize(hk.key().size(), value.size());
+  const auto requiredSize = RripBucketStorage::slotSize(size);
+  XDCHECK_LE(requiredSize, storage_.capacity());
+
+  auto curFreeSpace = storage_.remainingCapacity();
+  if (curFreeSpace >= requiredSize) {
+    return 0;
+  }
+
+  uint32_t evictions = 0;
+  auto itr = storage_.getFirst();
+  while (true) {
+    evictions++;
+
+    auto* entry = getIteratorEntry(itr);
+    redivideCb(entry->hashedKey(), entry->value(), itr.rrip());
 
     curFreeSpace += RripBucketStorage::slotSize(itr.view().size());
     if (curFreeSpace >= requiredSize) {

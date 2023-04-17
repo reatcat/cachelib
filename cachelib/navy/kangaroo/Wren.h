@@ -37,7 +37,7 @@ class Wren  {
   Wren(const Wren&) = delete;
   Wren& operator=(const Wren&) = delete;
 
-  Buffer read(KangarooBucketId kbid);
+  Buffer read(KangarooBucketId kbid, bool& newBuffer);
   bool write(KangarooBucketId kbid, Buffer buffer);
 
   bool shouldClean(double cleaningThreshold);
