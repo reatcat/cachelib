@@ -881,7 +881,6 @@ void Kangaroo::cleanSegmentsLoop() {
     }
   }
 	cleaningSyncCond_.notify_all();
-  exit(0);
 }
 
 void Kangaroo::cleanSegmentsWaitLoop() {
