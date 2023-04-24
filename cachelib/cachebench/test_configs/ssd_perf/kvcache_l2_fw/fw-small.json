@@ -1,0 +1,50 @@
+{
+  "cache_config": {
+    "cacheSizeMB": 1000,
+    "navyReaderThreads": 16,
+    "navyWriterThreads": 16,
+    "nvmCachePaths": ["/dev/nvme0n1"],
+    "writeAmpDeviceList": ["nvme0n1"],
+    "nvmCacheSizeMB": 410337,
+    "navyBlockSize": 4096,
+    "navySizeClasses": [],
+    "navyParcelMemoryMB": 6048,
+    "enableChainedItem": true,
+    "htBucketPower": 26,
+    "moveOnSlabRelease": true,
+    "poolRebalanceIntervalSec": 2,
+    "rebalanceStrategy": "hits",
+    "rebalanceMinRatio": 0.1,
+    "rebalanceMinSlabs": 2,
+    "navyZonedDevice" : true,
+    "navyRegionSizeMB" : 1077,
+    "navyBigHashSizePct": 0,
+    "navyKangarooSizePct": 90,
+    "navyKangarooBucketSize": 8192,
+    "navyKangarooLogSizePct": 10,
+    "navyKangarooLogPhysicalPartitions": 32,
+    "navyKangarooLogIndexPerPhysicalPartitions": 512,
+    "navyKangarooLogThreshold": 1,
+    "navySmallItemMaxSize": 2048,
+    "navyKangarooLogWriteGranularity": 1048576
+  },
+  "test_config": {
+    "opRatePerSec": 550000,
+    "opRateBurstSize": 200,
+    "enableLookaside": false,
+    "generator": "replay",
+    "replayGeneratorConfig":
+    {
+        "ampFactor": 12
+    },    
+    "repeatTraceReplay": false,
+    "repeatOpCount" : true,
+    "onlySetIfMiss" : false,
+    "numOps": 100000000000, 
+    "numThreads": 10, 
+    "prepopulateCache": true, 
+    "traceFileName": "/n/corgi/traces/facebook/tao/processed-04142020/fbobj_altoona_leader_processed_reformat.csv"
+  }
+}
+			//"/n/corgi/traces/facebook/tao/processed-04142020/fbobj_altoona_leader_processed.csv"
+			//"/h/sjmcalli/zns-sim/scripts/test.csv",
