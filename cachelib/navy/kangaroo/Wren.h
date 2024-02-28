@@ -51,7 +51,7 @@ class Wren  {
   // Erase Unit Id
   class EuId {
    public:
-    explicit EuId(uint32_t idx) : idx_{idx} {}
+    explicit EuId(uint64_t idx) : idx_{idx} {}
 
     bool operator==(const EuId& rhs) const noexcept {
       return idx_ == rhs.idx_;
@@ -60,16 +60,16 @@ class Wren  {
       return !(*this == rhs);
     }
 
-    uint32_t index() const noexcept { return idx_; }
+    uint64_t index() const noexcept { return idx_; }
 
    private:
-    uint32_t idx_;
+    uint64_t idx_;
   };
 
   struct EuIdentifier {
     EuId euid_; // location on device
 
-    EuIdentifier() : euid_{EuId((uint32_t) -1)} {}
+    EuIdentifier() : euid_{EuId((uint64_t) -1)} {}
   };
   EuId calcEuId(uint32_t erase_unit, uint32_t offset);
   EuId findEuId(KangarooBucketId kbid);

@@ -224,6 +224,7 @@ class FwLog  {
   std::condition_variable_any flushLogCv_;
   std::condition_variable_any cleaningCv_;
   folly::SharedMutex cleaningMutex_;
+  folly::SharedMutex writeMutex_;
   Buffer* logSegmentBuffers_;
 
   LogSegmentId nextLsidToClean_;

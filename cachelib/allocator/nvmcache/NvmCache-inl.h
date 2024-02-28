@@ -554,8 +554,8 @@ void NvmCache<C>::put(WriteHandle& hdl, PutToken token) {
             stats().nvmPutSize_.trackValue(valSize);
           } else if (st == navy::Status::BadState) {
             // we set disable navy since we got a BadState from navy
-            disableNavy("Delete Failure. BadState");
-          } else {
+          //  disableNavy("Delete Failure. BadState");
+          //} else {
             // put failed, DRAM eviction happened and destructor was not
             // executed. we unconditionally trigger destructor here for cleanup.
             evictCB(key, makeBufferView(val), navy::DestructorEvent::PutFailed);
@@ -828,8 +828,8 @@ void NvmCache<C>::remove(HashedKey hk, DeleteTombStoneGuard tombstone) {
       return;
     }
     // we set disable navy since we failed to delete something
-    disableNavy(folly::sformat("Delete Failure. status = {}",
-                               static_cast<int>(status)));
+    //disableNavy(folly::sformat("Delete Failure. status = {}",
+    //                           static_cast<int>(status)));
   };
 
   auto status = navyCache_->removeAsync(

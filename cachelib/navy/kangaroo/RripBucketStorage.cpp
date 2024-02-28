@@ -119,7 +119,7 @@ RripBucketStorage::Allocation RripBucketStorage::getNext(
 
   auto* next =
       reinterpret_cast<Slot*>(alloc.view().data() + alloc.view().size());
-  if (reinterpret_cast<uint8_t*>(next) - data_ >= endOffset_) {
+  if (!next || !next->size || !next->data || reinterpret_cast<uint8_t*>(next) - data_ >= endOffset_) {
     return {};
   }
   return {MutableBufferView{next->size, next->data}, alloc.position() + 1, 

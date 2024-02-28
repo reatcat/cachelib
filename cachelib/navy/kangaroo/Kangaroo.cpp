@@ -236,18 +236,24 @@ void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush, int gcMode) {
       ois = fwLog_->getObjectsToMove(kbid, logFlush);
     }
     if (!ois.size() && logFlush) {
+      if (kbid.index() % 10000 == 5) {
+        XLOGF(INFO, "No objects to move for {}", kbid.index());
+      }
       return; // still need to move bucket if gc caused
     }
     
     auto coldBuffer = readBucket(kbid, false);
     if (coldBuffer.isNull()) {
+      if (kbid.index() % 10000 == 5) {
+        XLOGF(INFO, "cold bucket read error for {}", kbid.index());
+      }
       ioErrorCount_.inc();
       return; 
     }
     auto* coldBucket = reinterpret_cast<RripBucket*>(coldBuffer.data());
-    /*if (kbid.index() % 20000 == 10) {
+    if (kbid.index() % 100000 == 5) {
       XLOGF(INFO, "Cold bucket ({}) has {} objects", kbid.index(), coldBucket->size());
-    }*/
+    }
     
     auto hotBuffer = readBucket(kbid, true);
     if (hotBuffer.isNull()) {
@@ -256,9 +262,9 @@ void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush, int gcMode) {
     }
     auto* hotBucket = reinterpret_cast<RripBucket*>(hotBuffer.data());
     uint32_t hotCount = hotBucket->size();
-    /*if (kbid.index() % 20000 == 10) {
+    if (kbid.index() % 100000 == 5) {
       XLOGF(INFO, "Hot bucket ({}) has {} objects", kbid.index(), hotBucket->size());
-    }*/
+    }
 
     coldBucket->reorder([&](uint32_t keyIdx) {return bvGetHit(kbid, hotCount + keyIdx);});
 
@@ -295,10 +301,6 @@ void Kangaroo::moveBucket(KangarooBucketId kbid, bool logFlush, int gcMode) {
     for (auto& oi: ois) {
       passedItemSize += oi->key.key().size() + oi->value.size();
       passedCount++;
-
-      /*if (kbid.index() % 20000 == 10) {
-        XLOGF(INFO, "Moving items ({}): value null: {} key: {}", kbid.index(), oi->value.isNull(), oi->key.keyHash());
-      }*/
 
       if (coldBucket->isSpace(oi->key, oi->value.view(), oi->hits)) {
         removedCount += coldBucket->remove(oi->key, nullptr);
@@ -480,7 +482,7 @@ Status Kangaroo::lookup(HashedKey hk, Buffer& value) {
       return Status::NotFound;
     }
 
-    buffer = readBucket(bid, true); // TODO: make this work without hot cache
+    buffer = readBucket(bid, true); 
     if (buffer.isNull()) {
       ioErrorCount_.inc();
       return Status::DeviceError;
@@ -494,7 +496,7 @@ Status Kangaroo::lookup(HashedKey hk, Buffer& value) {
     uint64_t hotItems = 0;
     if (valueView.isNull()) {
       uint64_t hotItems = bucket->size();
-      buffer = readBucket(bid, false); // TODO: make this work without hot cache
+      buffer = readBucket(bid, false);
       if (buffer.isNull()) {
         ioErrorCount_.inc();
         return Status::DeviceError;
@@ -504,6 +506,8 @@ Status Kangaroo::lookup(HashedKey hk, Buffer& value) {
 
       /* TODO: moving this inside lock could cause performance problem */
       valueView = bucket->find(hk, [&](uint32_t keyIdx) {bvSetHit(bid, keyIdx + hotItems);});
+    } else {
+        hotSetHits_.inc();
     }
   }
   
@@ -622,11 +626,10 @@ bool Kangaroo::couldExist(HashedKey hk) {
     lookupCount_.inc();
   }
   
-  if (lookupCount_.get() % 50000 == 0) {
-    XLOGF(INFO, "Lookup count succ {} of {}, set hits {} log hits {}, io error count {}", 
-        succLookupCount_.get(), lookupCount_.get(), 
-        setHits_.get(), logHits_.get(),
-        ioErrorCount_.get());
+  if (lookupCount_.get() % 5000000 == 0) {
+    XLOGF(INFO, "Lookup count {}, insert count {} log {} sets, set hits {} hot set hits {} log hits {}", 
+        lookupCount_.get(), logInsertCount_.get(), setInsertCount_.get(),
+        setHits_.get(), hotSetHits_.get(), logHits_.get());
   }
 
   return canExist;
@@ -697,6 +700,11 @@ Buffer Kangaroo::readBucket(KangarooBucketId bid, bool hot) {
     buffer = wrenDevice_->read(bid, newBuffer);
   }
 
+  if (bid.index() % 100000 == 5) {
+    XLOGF(INFO, "Read {} hot {}, newBuffer {}, buffer is Null {}", 
+        bid.index(), hot, newBuffer, buffer.isNull());
+  }
+
   if (buffer.isNull()) {
     return {};
   }
@@ -714,10 +722,10 @@ Buffer Kangaroo::readBucket(KangarooBucketId bid, bool hot) {
 
   if (!checksumSuccess || newBuffer || static_cast<uint64_t>(generationTime_.count()) !=
                               bucket->generationTime()) {
-    /*if (bid.index() % 20000 == 10) {
+    if (bid.index() % 1000000 == 5) {
       XLOGF(INFO, "Reinit ({}) for hot? ({}), checksum suc? {}, newBuffer {}", 
           bid.index(), hot, !checksumSuccess, newBuffer);
-    }*/
+    }
     RripBucket::initNew(buffer.mutableView(), generationTime_.count());
   }
   return buffer;
@@ -768,7 +776,9 @@ void Kangaroo::performLogFlush() {
 				break;
 			}
 		}
-    //XLOGF(INFO, "Moving kbid {}", kbid.index());
+    if (kbid.index() % 100000 == 5) {
+      XLOGF(INFO, "Moving kbid {}", kbid.index());
+    }
 		moveBucket(kbid, true, 0);
 	}
 	      

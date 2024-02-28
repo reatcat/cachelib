@@ -137,6 +137,7 @@ inline const Request& RequestStream::getReq(uint8_t,
     } else if (!token.compare("DELETE")) {
       req_.setOp(OpType::kDel);
     } else {
+      XLOG(INFO, "Op not found");
       continue;
     }
 

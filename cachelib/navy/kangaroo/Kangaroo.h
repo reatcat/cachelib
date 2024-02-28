@@ -62,14 +62,14 @@ class Kangaroo final : public Engine {
 
     std::unique_ptr<RripBitVector> rripBitVector;
     
-    uint64_t mergeThreads{16};
+    uint64_t mergeThreads{32};
 
     // Better to underestimate, used for pre-allocating log index
     // only needed for Kangaroo
     uint32_t avgSmallObjectSize{100};
     uint32_t logIndexPartitionsPerPhysical{};
 
-    double setOverprovisioning{.5}; // overprovisioning
+    double setOverprovisioning{.05}; // overprovisioning
     uint64_t numBuckets() const { return (1 - setOverprovisioning) * totalSetSize / bucketSize; }
     uint64_t hotBaseOffset() const { 
       uint64_t totalZones = totalSetSize / device->getIOZoneCapSize();
@@ -182,9 +182,9 @@ class Kangaroo final : public Engine {
   static constexpr double LogIndexOverhead = 2;
 
   // Log flushing and gc code, performed on a separate set of threads
-  double flushingThreshold_ = 0.3;
-  double gcUpperThreshold_ = 0.4;
-  double gcLowerThreshold_ = 0.2;
+  double flushingThreshold_ = 0.15;
+  double gcUpperThreshold_ = 0.05;
+  double gcLowerThreshold_ = 0.015;
   bool shouldLogFlush(); // not parallel
   bool shouldUpperGC(bool hot); // not parallel
   bool shouldLowerGC(bool hot); // not parallel
@@ -204,7 +204,7 @@ class Kangaroo final : public Engine {
   Wren::EuIterator euIterator_;
   bool killThread_ = false;
   bool enableHot_ = true;
-  float hotRebuildFreq_ = 2;
+  float hotRebuildFreq_ = 5;
 
   const DestructorCallback destructorCb_{};
   const uint64_t bucketSize_{};
@@ -234,6 +234,7 @@ class Kangaroo final : public Engine {
   mutable AtomicCounter lookupCount_;
   mutable AtomicCounter succLookupCount_;
   mutable AtomicCounter setHits_;
+  mutable AtomicCounter hotSetHits_;
   mutable AtomicCounter logHits_;
   mutable AtomicCounter removeCount_;
   mutable AtomicCounter succRemoveCount_;

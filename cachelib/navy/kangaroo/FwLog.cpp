@@ -95,9 +95,7 @@ bool FwLog::flushLogSegment(uint32_t partition, bool wait) {
     {
 			std::unique_lock<folly::SharedMutex> lock{cleaningMutex_};
       while (oldLsid.zone() == nextLsidToClean_.zone() && flushLogOnce_) {
-        XLOGF(INFO, "waiting for cleaning {}, bufferedSegmentOffset {}", oldLsid.zone(), bufferedSegmentOffset_);
         cleaningCv_.wait(lock);
-        XLOGF(INFO, "First writing {}, bufferedSegmentOffset_ {}", oldLsid.zone(), bufferedSegmentOffset_);
       }
     }
 
@@ -260,7 +258,7 @@ FwLog::FwLog(Config&& config, ValidConfigTag)
       index_{new ChainedLogIndex*[logIndexPartitions_]},
       numLogZones_{logSize_ / device_.getIOZoneCapSize()},
       numSegmentsPerZone_{numSegments_ / numLogZones_},
-      pagesPerZone_{numSegmentsPerZone_ * pagesPerSegment_},
+      pagesPerZone_{device_.getIOZoneSize() / pageSize_},
       logPhysicalPartitions_{config.logPhysicalPartitions},
       physicalPartitionSize_{logSize_ / logPhysicalPartitions_},
       pagesPerPartitionSegment_{pagesPerSegment_ / logPhysicalPartitions_},
@@ -279,6 +277,10 @@ FwLog::FwLog(Config&& config, ValidConfigTag)
         logBaseOffset_,
 				pagesPerPartitionSegment_);
   XLOGF(INFO, "FwLog: num zones {}, segments per zone {}", numLogZones_, numSegmentsPerZone_);
+  XLOGF(INFO, "FwLog: zone size {}, offset {}, segment size {} page size {}", 
+      device_.getIOZoneSize(), logBaseOffset_, segmentSize_, pageSize_);
+  XLOGF(INFO, "FwLog: pages per zone {}, pages per segment {}", 
+      pagesPerZone_, pagesPerSegment_);
   for (uint64_t i = 0; i < logIndexPartitions_; i++) {
     index_[i] = new ChainedLogIndex(numIndexEntries_ / logIndexPartitions_, 
             config.sizeAllocations, setNumberCallback_);
@@ -331,6 +333,9 @@ std::vector<std::unique_ptr<ObjectInfo>> FwLog::getObjectsToMove(KangarooBucketI
     if (!lpid.isValid()) {
         continue;
     }
+    /*if (bid.index() % 10000 == 5) {
+      XLOGF(INFO, "In bid: {} looking for tag: {}", bid.index(), tag);
+    }*/
 
     // Find value, could be in in-memory buffer or on nvm
     Buffer buffer;
@@ -338,9 +343,15 @@ std::vector<std::unique_ptr<ObjectInfo>> FwLog::getObjectsToMove(KangarooBucketI
     Status status = lookupBufferedTag(tag, key, buffer, lpid);
     //XLOGF(INFO, "lookupBufferedTag ended {}", bid.index());
     if (status != Status::Ok) {
-      //XLOGF(INFO, "readLogPage {}", bid.index());
+      /*if (bid.index() % 10000 == 5) {
+        XLOGF(INFO, "readLogPage bid {}, lpid {}, location {}", 
+            bid.index(), lpid.index(), getLogPageOffset(lpid));
+      }*/
       buffer = readLogPage(lpid);
       if (buffer.isNull()) {
+        /*if (bid.index() % 10000 == 5) {
+          XLOGF(INFO, "Buffer is null for bid: {} key: {}", bid.index(), key.keyHash());
+        }*/
         ioErrorCount_.inc();
         continue;
       }
@@ -361,13 +372,17 @@ std::vector<std::unique_ptr<ObjectInfo>> FwLog::getObjectsToMove(KangarooBucketI
     }
     index_[indexPartition]->remove(tag, bid, getPartitionOffset(lpid));
     auto ptr = std::make_unique<ObjectInfo>(key, value, hits, lpid, tag);
-    /*if (ptr->key.keyHash() % 1000 == 5) {
-      XLOGF(INFO, "Found item: value null: {} key: {}", value.isNull(), key.keyHash());
-      XLOGF(INFO, "Copied item: value null: {} key: {}", ptr->value.isNull(), ptr->key.keyHash());
+    /*if (bid.index() % 10000 == 5) {
+      XLOGF(INFO, "Found item: bid {} value null: {} key: {}", 
+          bid.index(), value.isNull(), key.keyHash());
     }*/
     objects.push_back(std::move(ptr));
   }
   //XLOGF(INFO, "finished finding objects {}", bid.index());
+  /*if (bid.index() % 10000 == 5) {
+    XLOGF(INFO, "Finished finding objects in {}, found {} objects, threshold {}", 
+        bid.index(), objects.size(), threshold_);
+  }*/
   
 	if (objects.size() < threshold_ && checkThreshold) {
 	  thresholdNotHit_.inc();
@@ -511,12 +526,19 @@ Status FwLog::lookup(HashedKey hk, Buffer& value) {
       return Status::DeviceError;
     }
   }
+  
+
+  
 
   page = reinterpret_cast<LogBucket*>(buffer.data());
   
   valueView = page->find(hk);
   if (valueView.isNull()) {
     keyCollisionCount_.inc();
+    /*if (hk.keyHash() % 70000 == 1) {
+      XLOGF(INFO, "Lookup: hashedKey {}, lpid {}, getLogPageOffset {}", 
+          hk.keyHash(), lpid.index(), getLogPageOffset(lpid));
+    }*/
     return Status::NotFound;
   }
 
@@ -526,6 +548,11 @@ Status FwLog::lookup(HashedKey hk, Buffer& value) {
 } 
 
 bool FwLog::couldExist(HashedKey hk) {
+  /*if (lookupCount_.get() % 5000000 == 0) {
+    XLOGF(INFO, "Log lookup count {}, keyCollisionCount {}", 
+        lookupCount_.get(), keyCollisionCount_.get());
+  }*/
+
   uint64_t indexPartition = getIndexPartition(hk);
   uint64_t physicalPartition = getPhysicalPartition(hk);
   LogPageId lpid = getLogPageId(index_[indexPartition]->lookup(hk, true, nullptr), physicalPartition);
@@ -555,11 +582,21 @@ Status FwLog::insert(HashedKey hk,
       uint32_t bufferNum = (i + bufferedSegmentOffset_) % numBufferedLogSegments_;
       std::shared_lock<folly::SharedMutex> lock{logSegmentMutexs_[bufferNum]};
 
-      lpid = getLogPageId(
-          currentLogSegments_[bufferNum]->getLogSegmentId(),
-          currentLogSegments_[bufferNum]->insert(hk, value, physicalPartition));
+      LogSegmentId id = currentLogSegments_[bufferNum]->getLogSegmentId();
+      uint32_t pageOffset = currentLogSegments_[bufferNum]->insert(hk, value, physicalPartition);
+      lpid = getLogPageId(id, pageOffset);
       if (lpid.isValid()) {
         buffer = bufferNum;
+        /*if (hk.keyHash() % 70000 == 1) {
+          XLOGF(INFO, "Insert: hashedKey {}, lpid {}, pageOffset {}, segmentId {}.{}, seg Offset {}, page offset {}", 
+              hk.keyHash(), lpid.index(), pageOffset, id.zone(), id.offset(), getLogSegmentOffset(id), getLogPageOffset(lpid));
+        }*/
+        /*if (setNumberCallback_(hk.keyHash()).index() % 10000 == 5) {
+            XLOGF(INFO, "Insert: bid {}, hashedKey {}, lpid {}, pageOffset {}, segmentId {}.{}, seg Offset {}, page offset {}",
+              setNumberCallback_(hk.keyHash()).index(), hk.keyHash(), 
+              lpid.index(), pageOffset, id.zone(), id.offset(), 
+              getLogSegmentOffset(id), getLogPageOffset(lpid));
+        }*/
         break;
       } 
     }
@@ -576,6 +613,7 @@ Status FwLog::insert(HashedKey hk,
         succInsertCount_.inc();
         bytesInserted_.add(hk.key().size() + value.size());
       }
+
     }
     
     if (buffer != bufferedSegmentOffset_) {

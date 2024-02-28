@@ -21,9 +21,9 @@
     "navyBigHashSizePct": 0,
     "navyKangarooSizePct": 90,
     "navyKangarooBucketSize": 8192,
-    "navyKangarooLogSizePct": 5,
+    "navyKangarooLogSizePct": 10,
     "navyKangarooLogPhysicalPartitions": 32,
-    "navyKangarooLogIndexPerPhysicalPartitions": 512,
+    "navyKangarooLogIndexPerPhysicalPartitions": 1024,
     "navyKangarooLogThreshold": 1,
     "navySmallItemMaxSize": 2048,
     "navyKangarooLogWriteGranularity": 1048576
@@ -35,13 +35,13 @@
     "generator": "replay",
     "replayGeneratorConfig":
     {
-        "ampFactor": 6 
+        "ampFactor": 12
     },    
     "repeatTraceReplay": false,
     "repeatOpCount" : true,
     "onlySetIfMiss" : false,
     "numOps": 100000000000, 
-    "numThreads": 5, 
+    "numThreads": 10, 
     "prepopulateCache": true, 
     "traceFileName": "/traces/meta/fb-04142020-reformatted.csv"
   }
