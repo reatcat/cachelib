@@ -50,8 +50,7 @@ bool FwLog::writeLogSegment(LogSegmentId lsid, Buffer buffer) {
     device_.reset(offset, device_.getIOZoneSize());
   }
   logSegmentsWrittenCount_.inc();
-  //XLOGF(INFO, "Write: writing to zone {} offset {}, actual zone # {}, loc {}", 
-  //    lsid.zone(), lsid.offset(), offset / device_.getIOZoneSize(), offset);
+
   bool ret =  device_.write(getLogSegmentOffset(lsid), std::move(buffer));
   if (!ret) {
     XLOGF(INFO, "FwLog Write Failed: writing to zone {} offset {}, actual zone # {}, loc {}", 
@@ -526,19 +525,13 @@ Status FwLog::lookup(HashedKey hk, Buffer& value) {
       return Status::DeviceError;
     }
   }
-  
-
-  
 
   page = reinterpret_cast<LogBucket*>(buffer.data());
   
   valueView = page->find(hk);
   if (valueView.isNull()) {
     keyCollisionCount_.inc();
-    /*if (hk.keyHash() % 70000 == 1) {
-      XLOGF(INFO, "Lookup: hashedKey {}, lpid {}, getLogPageOffset {}", 
-          hk.keyHash(), lpid.index(), getLogPageOffset(lpid));
-    }*/
+
     return Status::NotFound;
   }
 
@@ -587,16 +580,6 @@ Status FwLog::insert(HashedKey hk,
       lpid = getLogPageId(id, pageOffset);
       if (lpid.isValid()) {
         buffer = bufferNum;
-        /*if (hk.keyHash() % 70000 == 1) {
-          XLOGF(INFO, "Insert: hashedKey {}, lpid {}, pageOffset {}, segmentId {}.{}, seg Offset {}, page offset {}", 
-              hk.keyHash(), lpid.index(), pageOffset, id.zone(), id.offset(), getLogSegmentOffset(id), getLogPageOffset(lpid));
-        }*/
-        /*if (setNumberCallback_(hk.keyHash()).index() % 10000 == 5) {
-            XLOGF(INFO, "Insert: bid {}, hashedKey {}, lpid {}, pageOffset {}, segmentId {}.{}, seg Offset {}, page offset {}",
-              setNumberCallback_(hk.keyHash()).index(), hk.keyHash(), 
-              lpid.index(), pageOffset, id.zone(), id.offset(), 
-              getLogSegmentOffset(id), getLogPageOffset(lpid));
-        }*/
         break;
       } 
     }
